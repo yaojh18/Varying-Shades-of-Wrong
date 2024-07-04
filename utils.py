@@ -1,4 +1,6 @@
 import time
+import json
+import os
 import collections
 import openai
 import random
@@ -23,19 +25,41 @@ class PreferenceDataset:
     dataset: List[dict]
     dataset_name: str
     model_name: str
+    output_name: str = ''
     split_ratio: float = 0.8
+
+    def __init__(self, dataset_name, model_name, sample_size=-1, load_from_exist=False):
+        random.seed(42)
+        self.dataset_name = dataset_name
+        self.model_name = model_name
+        assert (self.output_name != '')
+        if load_from_exist and os.path.exists(f'./output/{self.model_name}/{self.output_name}.jsonl') and os.path.exists(f'./output/{self.model_name}/{self.output_name}_test.jsonl'):
+            self.train_dataset = []
+            self.test_dataset = []
+            with open(f'./output/{self.model_name}/{self.output_name}.jsonl', 'r', encoding='utf-8') as file:
+                for line in file:
+                    self.train_dataset.append(json.loads(line.strip()))
+            with open(f'./output/{self.model_name}/{self.output_name}_test.jsonl', 'r', encoding='utf-8') as file:
+                for line in file:
+                    self.test_dataset.append(json.loads(line.strip()))
+        else:
+            self.load_dataset()
+            self.precess_dataset(sample_size=sample_size)
+            self.train_test_split()
 
     @abstractmethod
     def load_dataset(self):
         pass
 
     @abstractmethod
-    def precess_dataset(self):
+    def precess_dataset(self, sample_size):
         pass
 
-    @abstractmethod
-    def save_dataset(self):
-        pass
+    def train_test_split(self):
+        train_dataset_size = round(len(self.dataset) * self.split_ratio)
+        self.train_dataset, self.test_dataset = random_split(self.dataset, [train_dataset_size, len(self.dataset) - train_dataset_size])
+        self.train_dataset = list(self.train_dataset)
+        self.test_dataset = list(self.test_dataset)
 
     def generate_answer(self, instruction_name):
         queries = []
@@ -55,15 +79,18 @@ class PreferenceDataset:
             data['responses'] = response
         return log_probs, responses
 
-    def train_test_split(self):
-        train_dataset_size = round(len(self.dataset) * self.split_ratio)
-        self.train_dataset, self.test_dataset = random_split(self.dataset, [train_dataset_size, len(self.dataset) - train_dataset_size])
-        self.train_dataset = list(self.train_dataset)
-        self.test_dataset = list(self.test_dataset)
-
     @abstractmethod
-    def extract_answer(self):
+    def process_answer(self):
         pass
+
+    def save_dataset(self):
+        os.makedirs(f'./output/{self.model_name}/', exist_ok=True)
+        with open(f'./output/{self.model_name}/{self.output_name}.jsonl', 'w', encoding='utf-8') as file:
+            for data in self.train_dataset:
+                file.write(json.dumps(data) + '\n')
+        with open(f'./output/{self.model_name}/{self.output_name}_test.jsonl', 'w', encoding='utf-8') as file:
+            for data in self.test_dataset:
+                file.write(json.dumps(data) + '\n')
 
 
 def query_openai(prompt, index, model):

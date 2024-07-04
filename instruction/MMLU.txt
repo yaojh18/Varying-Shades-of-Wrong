@@ -1,0 +1,3 @@
+Above is a multiple-choice question. Analyze the question and provide your answer step by step with explanation. Your response should have the following format:
+Analysis: <your analyzing steps>
+Final Answer: <Only a letter "A", "B", "C", etc. representing your final answer, without any extra commentary whatsoever>

@@ -1,36 +1,16 @@
-import json
 import re
-import os
-import pandas as pd
-
 from utils import *
 
 
 class KnowledgeCrosswords(PreferenceDataset):
 
-    def __init__(self, dataset_name, model_name, sample_size=-1, knowledge=True, load_from_exist=False):
-        super().__init__()
-        random.seed(42)
-        self.dataset_name = dataset_name
-        self.model_name = model_name
+    def __init__(self, knowledge=True, **kwargs):
         self.knowledge = knowledge
-        if load_from_exist and os.path.exists(f'./output/{self.model_name}/{self.dataset_name}.jsonl') and os.path.exists(f'./output/{self.model_name}/{self.dataset_name}_test.jsonl'):
-            if self.knowledge:
-                file_suffix = 'w_knowledge'
-            else:
-                file_suffix = 'wo_knowledge'
-            self.train_dataset = []
-            self.test_dataset = []
-            with open(f'./output/{self.model_name}/{self.dataset_name}_{file_suffix}.jsonl', 'r', encoding='utf-8') as file:
-                for line in file:
-                    self.train_dataset.append(json.loads(line.strip()))
-            with open(f'./output/{self.model_name}/{self.dataset_name}_{file_suffix}_test.jsonl', 'r', encoding='utf-8') as file:
-                for line in file:
-                    self.test_dataset.append(json.loads(line.strip()))
+        if self.knowledge:
+            self.output_name = f"{kwargs['dataset_name']}_w_knowledge"
         else:
-            self.load_dataset()
-            self.precess_dataset(knowledge=knowledge, sample_size=sample_size)
-            self.train_test_split()
+            self.output_name = f"{kwargs['dataset_name']}_wo_knowledge"
+        super().__init__(**kwargs)
 
     def load_dataset(self):
         self.dataset = []
@@ -49,13 +29,13 @@ class KnowledgeCrosswords(PreferenceDataset):
                         'count': count
                     })
 
-    def precess_dataset(self, knowledge, sample_size):
+    def precess_dataset(self, sample_size):
         if sample_size > 0:
             random.seed(42)
             self.dataset = random.sample(self.dataset, sample_size)
         for data in self.dataset:
             query = f'Instruction: Pick the correct answer for each blank that satisfies all the given constraints.'
-            if knowledge:
+            if self.knowledge:
                 query += '\nKnowledge: '
                 for k in data['knowledge'].values():
                     for term in k:
@@ -74,27 +54,14 @@ class KnowledgeCrosswords(PreferenceDataset):
             query += '\n'
             data['query'] = query
 
-    def save_dataset(self):
-        if self.knowledge:
-            file_suffix = 'w_knowledge'
-        else:
-            file_suffix = 'wo_knowledge'
-        os.makedirs(f'./output/{self.model_name}/', exist_ok=True)
-        with open(f'./output/{self.model_name}/{self.dataset_name}_{file_suffix}.jsonl', 'w', encoding='utf-8') as file:
-            for data in self.train_dataset:
-                file.write(json.dumps(data) + '\n')
-        with open(f'./output/{self.model_name}/{self.dataset_name}_{file_suffix}_test.jsonl', 'w', encoding='utf-8') as file:
-            for data in self.test_dataset:
-                file.write(json.dumps(data) + '\n')
-
-    def extract_answer(self, responses_list):
+    def process_answer(self):
         pattern = r'Final Answer:\s*([A-D])'
-        for responses, data in zip(responses_list, self.train_dataset):
-            data['extracted answers'] = [re.search(pattern, response).group(1) if re.search(pattern, response) else None for response in responses]
+        for data in self.train_dataset:
+            data['extracted answers'] = [re.search(pattern, response).group(1) if re.search(pattern, response) else None for response in data['responses']]
 
 
 if __name__ == '__main__':
-    kc_dataset = KnowledgeCrosswords('MC_hard', 'gpt-4', knowledge=True, sample_size=10)
+    kc_dataset = KnowledgeCrosswords(dataset_name='MC_hard', model_name='gpt-4', knowledge=False, sample_size=10, load_from_exist=True)
     log_probs, responses = kc_dataset.generate_answer('KC')
-    kc_dataset.extract_answer(responses)
+    kc_dataset.process_answer()
     kc_dataset.save_dataset()
