@@ -4,17 +4,26 @@ import openai
 import random
 import torch
 import torch.nn.functional as F
+from torch.utils.data import random_split
 from tqdm import tqdm
 from abc import abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from transformers import pipeline, AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM
 from huggingface_hub import login
+from typing import List
 
 OPENAI_KEY = 'sk-proj-BJiODPrgTGI8keUENjdmT3BlbkFJCAQOWpDkd50EHnvp2ILL'
+idx2letter = [
+    'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+    'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'
+]
 
 
 class PreferenceDataset:
-    dataset: list[dict]
+    dataset: List[dict]
+    dataset_name: str
+    model_name: str
+    split_ratio: float = 0.8
 
     @abstractmethod
     def load_dataset(self):
@@ -28,28 +37,32 @@ class PreferenceDataset:
     def save_dataset(self):
         pass
 
-    def generate_answer(self, model_name, instruction_name):
-        self.model_name = model_name
+    def generate_answer(self, instruction_name):
         queries = []
-        for data in self.dataset:
+        for data in self.train_dataset:
             queries.append(data['query'])
         with open(f'./instruction/{instruction_name}.txt', encoding='utf-8') as f:
             instruction = ''.join(f.readlines())
-        if model_name == 'gpt-4':
+        if self.model_name == 'gpt-4':
             log_probs, responses = batch_query_openai(queries, instruction=instruction, model='gpt-4o')
-        elif model_name == 'llama-3':
-            log_probs, responses = batch_query_open_sourced_llm(queries, instruction=instruction, model_name='meta-llama/Meta-Llama-3-8B-Instruct')
+        elif self.model_name == 'llama-3':
+            log_probs, responses = batch_query_open_sourced_llm(queries, instruction=instruction,
+                                                                model_name='meta-llama/Meta-Llama-3-8B-Instruct')
         else:
             raise NotImplementedError
-        for data, log_prob, response in zip(self.dataset, log_probs, responses):
+        for data, log_prob, response in zip(self.train_dataset, log_probs, responses):
             data['log_probs'] = log_prob
             data['responses'] = response
-            data['extracted answers'] = self.extract_answer(response)
         return log_probs, responses
 
-    @staticmethod
+    def train_test_split(self):
+        train_dataset_size = round(len(self.dataset) * self.split_ratio)
+        self.train_dataset, self.test_dataset = random_split(self.dataset, [train_dataset_size, len(self.dataset) - train_dataset_size])
+        self.train_dataset = list(self.train_dataset)
+        self.test_dataset = list(self.test_dataset)
+
     @abstractmethod
-    def extract_answer(response_list):
+    def extract_answer(self):
         pass
 
 
@@ -77,7 +90,7 @@ def query_openai(prompt, index, model):
                 responses.append(choice.message.content)
                 normalized_log_prob = []
                 for log_prob in choice.logprobs.content:
-                    normalized_log_prob.append(log_prob.logprob)
+                    normalized_log_prob.append(-log_prob.logprob)
                 log_probs.append(sum(normalized_log_prob) / len(normalized_log_prob))
             return index, log_probs, responses
 
@@ -93,7 +106,8 @@ def query_openai(prompt, index, model):
 
 def batch_query_openai(prompt_list, instruction, model="gpt-3.5-turbo"):
     with ProcessPoolExecutor(max_workers=5) as executor:
-        futures = [executor.submit(query_openai, prompt + instruction, index, model) for index, prompt in enumerate(prompt_list)]
+        futures = [executor.submit(query_openai, prompt + instruction, index, model) for index, prompt in
+                   enumerate(prompt_list)]
         response_dict = collections.defaultdict(str)
         log_prob_dict = collections.defaultdict(str)
         for job in tqdm(as_completed(futures), total=len(futures), desc="querying openai..."):
@@ -113,7 +127,7 @@ def batch_query_open_sourced_llm(prompt_list, instruction, model_name):
     :return:
     """
     login(token='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')
-    model = AutoModelForCausalLM.from_pretrained(model_name, device_map='auto')
+    model = AutoModelForCausalLM.from_pretrained(model_name, device_map='auto', load_in_8bit=True)
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     tokenizer.pad_token = tokenizer.eos_token
 
@@ -122,8 +136,9 @@ def batch_query_open_sourced_llm(prompt_list, instruction, model_name):
         "do_sample": True,
         "top_p": 0.8,
         "temperature": 1.0,
-        "max_new_tokens": 512,
+        "max_new_tokens": 1024,
         "pad_token_id": tokenizer.eos_token_id,
+        "eos_token_id": tokenizer.eos_token_id,
         "num_return_sequences": 10,
         "return_dict_in_generate": True,
         "output_logits": True,
@@ -134,20 +149,27 @@ def batch_query_open_sourced_llm(prompt_list, instruction, model_name):
     responses = []
     with torch.no_grad():
         for i in tqdm(range(len(prompt_list)), desc="generating answers..."):
-            query_tokens = tokenizer([prompt_list[i] + instruction], padding=True)
+            # query_tokens = tokenizer([prompt_list[i] + instruction], padding=True)
+            query_tokens = tokenizer.apply_chat_template(
+                [[{'role': 'user', 'content': prompt_list[i] + instruction}]],
+                add_generation_prompt=True,
+                padding=True,
+                return_dict=True
+            )
             input_ids = torch.LongTensor(query_tokens["input_ids"]).to(model.device)
             attention_mask = torch.LongTensor(query_tokens["attention_mask"]).to(model.device)
             outputs = model.generate(input_ids=input_ids, attention_mask=attention_mask, **generate_kwargs)
 
-            sequences = outputs.sequences[:, input_ids.shape[-1]:]
-            log_prob = [-F.log_softmax(logit, dim=-1) for logit in outputs.logits]
-            # todo: need to check if it's necessary to apply index shift.
-            answer_log_prob = torch.vstack([prob.gather(-1, sequences[:, i + 1: i + 2]).squeeze(-1) for i, prob in enumerate(log_prob[: -1])]).T
+            sequences = outputs.sequences[:, input_ids.shape[-1]:].cpu()
+            logits = [logit.cpu() for logit in outputs.logits]
+            log_prob = -F.log_softmax(torch.stack(logits, dim=1), dim=-1)
+            answer_log_prob = log_prob.gather(-1, sequences[:, :, None]).squeeze(-1)
             texts = tokenizer.batch_decode(sequences, skip_special_tokens=True)
             normalized_log_prob = []
             for j in range(generate_kwargs["num_return_sequences"]):
-                normalized_log_prob.append(torch.masked_select(answer_log_prob[i, :], sequences[i, :] != tokenizer.eos_token_id).mean().cpu().item())
-            normalized_log_prob = torch.vstack(normalized_log_prob).mean(dim=0).cpu().item()
+                normalized_log_prob.append(
+                    torch.masked_select(answer_log_prob[j, :], sequences[j, :] != tokenizer.eos_token_id).mean().item()
+                )
             log_probs.append(normalized_log_prob)
             responses.append(texts)
 
@@ -210,4 +232,3 @@ def get_normalized_probabilities(instructions, answers, model_name="meta-llama/M
                 probabilities.append(normalized_prob)
 
     return probabilities
-
