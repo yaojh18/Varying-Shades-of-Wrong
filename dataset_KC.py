@@ -1,8 +1,11 @@
-import re
+import argparse
 from utils import *
 
 
 class KnowledgeCrosswords(PreferenceDataset):
+    """
+    Fix correct answer number to 3 only. Easier for future comparison
+    """
 
     def __init__(self, knowledge=True, **kwargs):
         self.knowledge = knowledge
@@ -13,27 +16,25 @@ class KnowledgeCrosswords(PreferenceDataset):
         super().__init__(**kwargs)
 
     def load_dataset(self):
-        self.dataset = []
         with open(f'./dataset/{self.dataset_name}.jsonl', 'r', encoding='utf-8') as file:
             for line in file:
                 data = json.loads(line.strip())
                 if len(data['blanks']) == 3:
-                    choices, count = generate_choices_from_candidates(data['options'], data['answer_all'])
                     self.dataset.append({
                         'source': data['source'],
                         'target': data['target'],
                         'relation': data['relation'],
                         'knowledge': data['K'],
                         'options': data['options'],
-                        'choice': choices,
-                        'count': count
+                        'correct_answer_index': data['answer_all']
                     })
 
     def precess_dataset(self, sample_size):
-        if sample_size > 0:
+        if 0 < sample_size < len(self.dataset):
             random.seed(42)
             self.dataset = random.sample(self.dataset, sample_size)
         for data in self.dataset:
+            original_choices, original_correctness = generate_choices_from_candidates(data['options'], data['correct_answer_index'])
             query = f'Instruction: Pick the correct answer for each blank that satisfies all the given constraints.'
             if self.knowledge:
                 query += '\nKnowledge: '
@@ -44,24 +45,59 @@ class KnowledgeCrosswords(PreferenceDataset):
             for source, relation, target in zip(data['source'], data['relation'], data['target']):
                 query += f'({source}, {relation}, {target}); '
             query += '\nOptions: '
-            for choice in range(4):
-                query += f'{idx2letter[choice]}. '
-                for blank in range(3):
-                    query += f"blank {blank + 1}: {data['choice'][choice][blank]}"
-                    if blank != 2:
-                        query += ', '
-                query += '; '
-            query += '\n'
+            choices = []
+            correctness = []
+            for i in range(self.response_sample_size):
+                choice = ''
+                sampled_idxs = random.sample(range(4), 4)
+                for j in range(4):
+                    choice += f'{idx2letter[j]}. '
+                    for k in range(3):
+                        choice += f"blank {k + 1}: {original_choices[sampled_idxs[j]][k]}"
+                        if k != 2:
+                            choice += ', '
+                        else:
+                            choice += '; '
+                choice += '\n\n'
+                correctness.append([original_correctness[idx] for idx in sampled_idxs])
+                choices.append(choice)
             data['query'] = query
+            data['correctness'] = correctness
+            data['choices'] = choices
+            del data['source']
+            del data['relation']
+            del data['target']
+            del data['knowledge']
 
-    def process_answer(self):
-        pattern = r'Final Answer:\s*([A-D])'
-        for data in self.train_dataset:
-            data['extracted answers'] = [re.search(pattern, response).group(1) if re.search(pattern, response) else None for response in data['responses']]
+    # def process_answer(self, extract):
+    #     # This is the one-shot version
+    #     pattern = r'Final Answer:\s*([A-D])'
+    #     for data in self.train_dataset:
+    #         data['extracted answers'] = [re.search(pattern, response).group(1) if re.search(pattern, response) else None for response in data['responses']]
 
 
 if __name__ == '__main__':
-    kc_dataset = KnowledgeCrosswords(dataset_name='MC_hard', model_name='gpt-4', knowledge=False, sample_size=10, load_from_exist=True)
-    log_probs, responses = kc_dataset.generate_answer('KC')
-    kc_dataset.process_answer()
+    parser = argparse.ArgumentParser(description='Generate and process answers for KnowledgeCrosswords dataset')
+    parser.add_argument('--dataset_name', type=str, default='MC_easy', help='Name of the dataset')
+    parser.add_argument('--model_name', type=str, default='llama-3', help='Name of the model')
+    parser.add_argument('--instruction_name', type=str, default='CoT', help='Name of the instruction for generating answers')
+    parser.add_argument('--extract_instruction_name', type=str, default='multi_choice_extract', help='Name of the instruction for extracting answers')
+    parser.add_argument('--knowledge', type=bool, default=False, help='Include knowledge or not')
+    parser.add_argument('--response_sample_size', type=int, default=10, help='Response sample size')
+    parser.add_argument('--dataset_sample_size', type=int, default=500, help='Dataset sample size')
+    parser.add_argument('--load_from_exist', type=bool, default=False, help='Load from existing dataset or not')
+
+    args = parser.parse_args()
+
+    kc_dataset = KnowledgeCrosswords(
+        dataset_name=args.dataset_name,
+        model_name=args.model_name,
+        knowledge=args.knowledge,
+        response_sample_size=args.response_sample_size,
+        dataset_sample_size=args.dataset_sample_size,
+        load_from_exist=args.load_from_exist
+    )
+
+    kc_dataset.generate_answer(instruction_name=args.instruction_name)
+    kc_dataset.process_answer(instruction_name=args.instruction_name, extract_instruction_name=args.extract_instruction_name)
     kc_dataset.save_dataset()

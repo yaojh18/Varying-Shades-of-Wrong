@@ -1,4 +1,15 @@
 Analyze the question and provide your answer step by step with explanation. Your response should have the following format:
 Analysis: <your analyzing steps>
-Final Answer: <Only a letter "A", "B", "C", or "D" representing your final answer, without any extra commentary whatsoever>
+Final Answer: <Only a letter "A", "B", "C" or "D". representing your final answer, without any extra commentary whatsoever>
+
+Instruction: Pick the correct answer for each blank that satisfies all the given constraints.
+Constraints: (Anthony_Kiedis, hasMusicalRole, blank 2); (Sophie_of_Mecklenburg-Güstrow, hasGender, blank 1); (Sophia_of_Hanover, hasGender, blank 1); (blank 3, actedIn, Existenz); (blank 3, actedIn, In_the_Cut); (blank 3, hasGender, blank 1); (Cledus_T._Judd, hasMusicalRole, blank 2); (Martin_Simpson, hasMusicalRole, blank 2); (Lee_Jung-hyun, hasGender, blank 1); (Lee_Jung-hyun, hasMusicalRole, blank 2);
+Options: A. blank 1: female, blank 2: wordnet_vocal_music_107282006, blank 3: Jude_Law; B. blank 1: male, blank 2: wordnet_vocal_music_107282006, blank 3: Jude_Law; C. blank 1: male, blank 2: wordnet_guitar_103467517, blank 3: Don_McKellar; D. blank 1: female, blank 2: wordnet_vocal_music_107282006, blank 3: Jennifer_Jason_Leigh;
+
+Analysis:
+Constraints state that blank 1 must match the gender of Sophie_of_Mecklenburg-Güstrow and Sophia_of_Hanover, both of whom are female. So, blank 1 must be "female."
+Blank 2 must be a musical role matching Anthony_Kiedis, Cledus_T._Judd, Martin_Simpson, and Lee_Jung-hyun. The only role that fits all these individuals is wordnet_vocal_music_107282006.
+Blank 3 must be someone who acted in both "Existenz" and "In the Cut" and shares the same gender as blank 1, which is female. The only actor fitting these criteria is Jennifer_Jason_Leigh.
+Final Answer: D
+
 

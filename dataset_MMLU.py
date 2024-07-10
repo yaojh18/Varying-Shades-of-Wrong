@@ -1,9 +1,15 @@
-import re
+import argparse
 from datasets import load_dataset
 from utils import *
 
 
 class MMLUPro(PreferenceDataset):
+    """
+    Things need considering when parsing:
+    1. Generated answer may not have a desired format. Need to manually add rules.
+    2. Generated answer may not fall in the right index range due parser error. Need checking.
+    3. Generated answer may have abstention behavior.
+    """
 
     def __init__(self, **kwargs):
         self.output_name = kwargs['dataset_name']
@@ -35,35 +41,62 @@ class MMLUPro(PreferenceDataset):
         super().__init__(**kwargs)
 
     def load_dataset(self):
-        self.dataset = []
         raw_dataset = list(load_dataset('TIGER-Lab/MMLU-Pro')['test'])
         for data in raw_dataset:
             if data['src'] in self.filter:
                 self.dataset.append({
                     'question': data['question'],
-                    'answer': data['answer_index'],
-                    'options': data['options']
+                    'options': data['options'],
+                    'correct_answer_index':  data['answer_index']
                 })
 
     def precess_dataset(self, sample_size):
-        if sample_size > 0:
+        if 0 < sample_size < len(self.dataset):
             random.seed(42)
             self.dataset = random.sample(self.dataset, sample_size)
         for data in self.dataset:
             query = f"Question: {data['question']}\nOptions:\n"
-            for idx, option in enumerate(data['options']):
-                query += f"{idx2letter[idx]}. {option}\n"
-            query += '\n'
+            original_correctness = calculate_similarity_by_ada(data['question'], data['options'], data['correct_answer_index'])
+            choices = []
+            correctness = []
+            for i in range(self.response_sample_size):
+                sampled_idxs = random.sample(range(len(data['options'])), len(data['options']))
+                choice = ''
+                for j in range(len(data['options'])):
+                    choice += f"{idx2letter[j]}. {data['options'][sampled_idxs[j]]}\n"
+                correctness.append([original_correctness[idx] for idx in sampled_idxs])
+                choices.append(choice)
             data['query'] = query
+            data['choices'] = choices
+            data['correctness'] = correctness
+            del data['question']
 
-    def process_answer(self):
-        pattern = r'Final Answer:\s*([A-Z])'
-        for data in self.train_dataset:
-            data['extracted answers'] = [re.search(pattern, response).group(1) if re.search(pattern, response) else None for response in data['responses']]
+    # def process_answer(self):
+    #     pattern = r'Final Answer:\s*([A-Z])'
+    #     for data in self.train_dataset:
+    #         data['extracted answers'] = [re.search(pattern, response).group(1) if re.search(pattern, response) else None for response in data['responses']]
 
 
 if __name__ == '__main__':
-    mmlu_dataset = MMLUPro(dataset_name='MMLUPro', model_name='gpt-4', sample_size=10, load_from_exist=True)
-    # log_probs, responses = mmlu_dataset.generate_answer('MMLU')
-    mmlu_dataset.process_answer()
+    parser = argparse.ArgumentParser(description='Generate and process answers for MMLUPro dataset')
+    parser.add_argument('--dataset_name', type=str, default='MMLUPro', help='Name of the dataset')
+    parser.add_argument('--model_name', type=str, default='llama-3', help='Name of the model')
+    parser.add_argument('--instruction_name', type=str, default='CoT', help='Name of the instruction for generating answers')
+    parser.add_argument('--extract_instruction_name', type=str, default='multi_choice_extract', help='Name of the instruction for extracting answers')
+    parser.add_argument('--response_sample_size', type=int, default=10, help='Response sample size')
+    parser.add_argument('--dataset_sample_size', type=int, default=500, help='Dataset sample size')
+    parser.add_argument('--load_from_exist', type=bool, default=False, help='Load from existing dataset or not')
+
+    args = parser.parse_args()
+
+    mmlu_dataset = MMLUPro(
+        dataset_name=args.dataset_name,
+        model_name=args.model_name,
+        response_sample_size=args.response_sample_size,
+        dataset_sample_size=args.dataset_sample_size,
+        load_from_exist=args.load_from_exist
+    )
+
+    mmlu_dataset.generate_answer(instruction_name=args.instruction_name)
+    mmlu_dataset.process_answer(instruction_name=args.instruction_name, extract_instruction_name=args.extract_instruction_name)
     mmlu_dataset.save_dataset()
