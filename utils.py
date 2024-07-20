@@ -5,6 +5,7 @@ import collections
 import openai
 import random
 import torch
+import re
 import torch.nn.functional as F
 from torch.utils.data import random_split
 from tqdm import tqdm
@@ -19,6 +20,12 @@ idx2letter = [
     'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
     'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'
 ]
+letter2idx = {
+    'A': 0, 'B': 1, 'C': 2, 'D': 3, 'E': 4, 'F': 5, 'G': 6, 'H': 7,
+    'I': 8, 'J': 9, 'K': 10, 'L': 11, 'M': 12, 'N': 13, 'O': 14, 'P': 15,
+    'Q': 16, 'R': 17, 'S': 18, 'T': 19, 'U': 20, 'V': 21, 'W': 22, 'X': 23,
+    'Y': 24, 'Z': 25, 'None': None
+}
 
 
 class PreferenceDataset:
@@ -28,7 +35,7 @@ class PreferenceDataset:
     dataset: List[dict] = []
     output_name: str = ''
     split_ratio: float = 0.8
-    extract_answer_instruction: str
+    clean_extracted_answer_pattern: str = ''
 
     def __init__(self, dataset_name, model_name, dataset_sample_size=-1, response_sample_size=10, load_from_exist=False):
         random.seed(42)
@@ -119,6 +126,8 @@ class PreferenceDataset:
 
         for i, data in enumerate(self.train_dataset):
             data['extracted answers'] = responses[i * self.response_sample_size: i * self.response_sample_size + self.response_sample_size]
+        # assert (self.clean_extracted_answer_pattern != '')
+        # clean_extracted_answers(self, self.clean_extracted_answer_pattern)
 
     def save_dataset(self):
         os.makedirs(f'./output/{self.model_name}/', exist_ok=True)
@@ -134,7 +143,6 @@ def query_openai(prompt, index, model_name, mode):
     client = openai.OpenAI(api_key=OPENAI_KEY)
     if mode == 'generate':
         generate_kwargs = {
-            "top_p": 1.0,
             "temperature": 1.0,
             "logprobs": True,
         }
@@ -156,9 +164,12 @@ def query_openai(prompt, index, model_name, mode):
             msg = response.choices[0].message.content
             log_prob = 0.0
             if mode == 'generate':
+                log_prob = []
                 for prob in response.choices[0].logprobs.content:
-                    log_prob += -prob.logprob
-                log_prob /= len(response.choices[0].logprobs.content)
+                    if -prob.logprob != 9999.0:
+                        log_prob.append(-prob.logprob)
+                    else:
+                        log_prob.append(None)
             return index, log_prob, msg
 
         except Exception as e:
@@ -218,7 +229,7 @@ def batch_query_open_sourced_llm(prompt_list, model_name, mode='generate'):
             "pad_token_id": tokenizer.eos_token_id,
             "eos_token_id": tokenizer.eos_token_id,
         }
-        batch_size = 5
+        batch_size = 1
     # Get the log probabilities from the model_name
     log_probs = []
     responses = []
@@ -321,3 +332,22 @@ def get_normalized_probabilities(instructions, answers, model_name="meta-llama/M
                 probabilities.append(normalized_prob)
 
     return probabilities
+
+
+def clean_extracted_answers(dataset, pattern=r'([A-Z])(\.|\. .+)?$'):
+    pattern = re.compile(pattern)
+    for data in dataset.train_dataset:
+        new_extracted_answers = []
+        for d in data['extracted answers']:
+            match = pattern.search(d)
+            if match:
+                result = match.group(1)
+                if result.isdigit():
+                    result = int(result)
+                else:
+                    result = letter2idx[result]
+            else:
+                result = None
+            new_extracted_answers.append(result)
+        data['extracted answers'] = new_extracted_answers
+

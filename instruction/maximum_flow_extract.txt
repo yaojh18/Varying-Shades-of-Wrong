@@ -1,1 +1,1 @@
-Please conclude your response with a SINGLE number representing the maximum flow, without any additional text or explanation. If you don't give any answer in your response, please reply "None".
+Please conclude the maximum flow from your previous response, start your answer with "The maximum flow is". However, if you don't give a maximum flow in your previous response, you should reply "None".

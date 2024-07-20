@@ -1,1 +1,1 @@
-Please conclude your response with a SINGLE number representing the maximum matches, without any additional text or explanation. If you don't give any answer in your response, please reply "None".
+Please conclude the maximum number of matches from your previous response, start your answer with "The maximum number of matches is". However, if you don't give a maximum number of matches in your previous response, you should reply "None".

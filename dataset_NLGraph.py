@@ -7,6 +7,14 @@ class NLGraph(PreferenceDataset):
 
     def __init__(self, **kwargs):
         self.output_name = kwargs['dataset_name']
+        if kwargs['dataset_name'] == 'NLGraph_shortest_path':
+            self.clean_extracted_answer_pattern = r'The total weight is (\d+)'
+        elif kwargs['dataset_name'] == 'NLGraph_maximum_flow':
+            self.clean_extracted_answer_pattern = r'The maximum flow is (\d+)'
+        elif kwargs['dataset_name'] == 'NLGraph_matching':
+            self.clean_extracted_answer_pattern = r'The maximum number of matches is (\d+)'
+        else:
+            raise NotImplementedError
         super().__init__(**kwargs)
 
     def load_dataset(self):
@@ -24,7 +32,7 @@ class NLGraph(PreferenceDataset):
                 correct_answer = re.search(pattern, data['answer']).group(1)
                 self.dataset.append({
                     'query': 'Question: ' + data['question'][:-3],
-                    'correct_answer': correct_answer,
+                    'correct_answer': int(correct_answer),
                 })
                 if self.dataset_name == 'NLGraph_shortest_path':
                     self.dataset[-1]['query'] += ' Please also give the total weight of the shortest path.\n'
@@ -73,4 +81,12 @@ if __name__ == '__main__':
 
     nlgraph_dataset.generate_answer(instruction_name=args.instruction_name)
     nlgraph_dataset.process_answer(instruction_name=args.instruction_name, extract_instruction_name=args.extract_instruction_name)
+    if nlgraph_dataset.dataset_name == 'NLGraph_shortest_path':
+        clean_extracted_answers(nlgraph_dataset, r'The total weight is (\d+)')
+    elif nlgraph_dataset.dataset_name == 'NLGraph_maximum_flow':
+        clean_extracted_answers(nlgraph_dataset, r'The maximum flow is (\d+)')
+    elif nlgraph_dataset.dataset_name == 'NLGraph_matching':
+        clean_extracted_answers(nlgraph_dataset, r'The maximum number of matches is (\d+)')
+    else:
+        raise NotImplementedError
     nlgraph_dataset.save_dataset()

@@ -37,7 +37,10 @@ class BioGeneration(PreferenceDataset):
             )
             for data in tqdm(self.train_dataset, desc='Generating FactScore'):
                 topics = [data['topic']] * len(data['responses'])
-                data['factscore'] = fs.get_score(topics, data['responses'])['score']
+                try:
+                    data['factscore'] = fs.get_score(topics, data['responses'])['score']
+                except:
+                    data['factscore'] = [None] * len(data['responses'])
         else:
             raise NotImplementedError('This function must be run separately in Pytorch==1.13.1 environment.')
 

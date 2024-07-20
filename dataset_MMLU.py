@@ -38,6 +38,7 @@ class MMLUPro(PreferenceDataset):
             "ori_mmlu-sociology",
             "ori_mmlu-world_religions"
         ]
+        self.clean_extracted_answer_pattern = r'([A-Z])(\.|\. .+)?$'
         super().__init__(**kwargs)
 
     def load_dataset(self):
@@ -99,4 +100,5 @@ if __name__ == '__main__':
 
     mmlu_dataset.generate_answer(instruction_name=args.instruction_name)
     mmlu_dataset.process_answer(instruction_name=args.instruction_name, extract_instruction_name=args.extract_instruction_name)
+    clean_extracted_answers(mmlu_dataset, r'([A-Z])(\.|\. .+)?$')
     mmlu_dataset.save_dataset()

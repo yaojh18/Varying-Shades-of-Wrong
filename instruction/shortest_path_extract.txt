@@ -1,1 +1,1 @@
-Please conclude your response with a SINGLE number representing the total weight of the shortest path, without any additional text or explanation. If you don't give any answer in your response, please reply "None".
+Please conclude the total weight of the shortest path from your previous response, start your answer with "The total weight is". However, if you don't give any total weight in your previous response, you should reply "None".

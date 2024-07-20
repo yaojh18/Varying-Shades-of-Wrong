@@ -9,6 +9,7 @@ class KnowledgeCrosswords(PreferenceDataset):
 
     def __init__(self, knowledge=True, **kwargs):
         self.knowledge = knowledge
+        self.clean_extracted_answer_pattern = r'([A-Z])(\.|\. .+)?$'
         if self.knowledge:
             self.output_name = f"{kwargs['dataset_name']}_w_knowledge"
         else:
@@ -100,4 +101,5 @@ if __name__ == '__main__':
 
     kc_dataset.generate_answer(instruction_name=args.instruction_name)
     kc_dataset.process_answer(instruction_name=args.instruction_name, extract_instruction_name=args.extract_instruction_name)
+    clean_extracted_answers(kc_dataset, r'([A-Z])(\.|\. .+)?$')
     kc_dataset.save_dataset()
