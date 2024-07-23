@@ -1,0 +1,33 @@
+Below is an instruction from a user and five candidate responses. Please grade the correctness of each response on a 5-point scale from 0 to 5, where 0 is the lowest correctness, and 5 is the highest correctness. Only use integers for the ratings.
+
+## Instruction:
+'''
+{}
+'''
+
+## Response 1:
+'''
+{}
+'''
+
+## Response 2:
+'''
+{}
+'''
+
+## Response 3:
+'''
+{}
+'''
+
+## Response 4:
+'''
+{}
+'''
+
+## Response 5:
+'''
+{}
+'''
+
+Please first briefly describe your reasoning (in less than 100 words for each response), followed by a new line in the format of “Score: <rating>”. Let’s think step-by-step.

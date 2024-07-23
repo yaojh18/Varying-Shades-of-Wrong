@@ -1,0 +1,18 @@
+You are a helpful assistant whose goal is to select the preferred AI model's output for a given instruction based on their correctness.
+
+## Instruction:
+'''
+{}
+'''
+
+## Output 1:
+'''
+{}
+'''
+
+## Output 2:
+'''
+{}
+'''
+
+Please first briefly describe your reasoning (in less than 100 words), and then conclude with “Preferred output: 1 or 2.” in the last line. Let’s think step-by-step.

@@ -126,8 +126,6 @@ class PreferenceDataset:
 
         for i, data in enumerate(self.train_dataset):
             data['extracted answers'] = responses[i * self.response_sample_size: i * self.response_sample_size + self.response_sample_size]
-        # assert (self.clean_extracted_answer_pattern != '')
-        # clean_extracted_answers(self, self.clean_extracted_answer_pattern)
 
     def save_dataset(self):
         os.makedirs(f'./output/{self.model_name}/', exist_ok=True)
@@ -145,6 +143,12 @@ def query_openai(prompt, index, model_name, mode):
         generate_kwargs = {
             "temperature": 1.0,
             "logprobs": True,
+        }
+    elif mode == 'evaluate':
+        generate_kwargs = {
+            "temperature": 0.0,
+            # TODO
+            # "logprobs": True,
         }
     else:
         generate_kwargs = {
@@ -168,8 +172,12 @@ def query_openai(prompt, index, model_name, mode):
                 for prob in response.choices[0].logprobs.content:
                     if -prob.logprob != 9999.0:
                         log_prob.append(-prob.logprob)
-                    else:
-                        log_prob.append(None)
+                log_prob = sum(log_prob) / len(log_prob)
+            # TODO
+            # elif mode == 'evaluate':
+            #     log_prob = []
+            #     for prob in response.choices[0].logprobs.content:
+            #         log_prob.append((prob.token, prob.logprob))
             return index, log_prob, msg
 
         except Exception as e:
@@ -221,10 +229,24 @@ def batch_query_open_sourced_llm(prompt_list, model_name, mode='generate'):
             "output_logits": True,
         }
         batch_size = 5
+    elif mode == 'evaluate':
+        generate_kwargs = {
+            "do_sample": False,
+            "temperature": None,
+            "top_p": None,
+            "max_new_tokens": 1024,
+            "pad_token_id": tokenizer.eos_token_id,
+            "eos_token_id": tokenizer.eos_token_id,
+            # TODO
+            # "return_dict_in_generate": True,
+            # "output_logits": True,
+        }
+        batch_size = 1
     else:
         generate_kwargs = {
             "do_sample": False,
-            "temperature": 0.0,
+            "temperature": None,
+            "top_p": None,
             "max_new_tokens": 20,
             "pad_token_id": tokenizer.eos_token_id,
             "eos_token_id": tokenizer.eos_token_id,
@@ -250,12 +272,23 @@ def batch_query_open_sourced_llm(prompt_list, model_name, mode='generate'):
                 logits = [logit.cpu() for logit in outputs.logits]
                 log_prob = -F.log_softmax(torch.stack(logits, dim=1), dim=-1)
                 answer_log_prob = log_prob.gather(-1, sequences[:, :, None]).squeeze(-1)
-                normalized_log_prob = []
                 for j in range(end - begin):
-                    normalized_log_prob.append(
-                        torch.masked_select(answer_log_prob[j, :], sequences[j, :] != tokenizer.eos_token_id).mean().item()
+                    log_probs.append(
+                        answer_log_prob[j, :][sequences[j, :] != tokenizer.eos_token_id].mean().item()
                     )
-                log_probs += normalized_log_prob
+            # TODO
+            # elif mode == 'evaluate':
+            #     sequences = outputs.sequences[:, input_ids.shape[-1]:].cpu()
+            #     logits = [logit.cpu() for logit in outputs.logits]
+            #     log_prob = -F.log_softmax(torch.stack(logits, dim=1), dim=-1)
+            #     answer_log_prob = log_prob.gather(-1, sequences[:, :, None]).squeeze(-1)
+            #     for j in range(end - begin):
+            #         l = answer_log_prob[j, :][sequences[j, :] != tokenizer.eos_token_id].item()
+            #         t = tokenizer.convert_ids_to_tokens(sequences[j, :][sequences[j, :] != tokenizer.eos_token_id])
+            #         lt_pair = []
+            #         for l_, t_ in zip(l, t):
+            #             lt_pair.append((t_, l_))
+            #         log_probs.append(lt_pair)
             else:
                 sequences = outputs[:, input_ids.shape[-1]:].cpu()
             texts = tokenizer.batch_decode(sequences, skip_special_tokens=True)
@@ -350,4 +383,3 @@ def clean_extracted_answers(dataset, pattern=r'([A-Z])(\.|\. .+)?$'):
                 result = None
             new_extracted_answers.append(result)
         data['extracted answers'] = new_extracted_answers
-
