@@ -9,7 +9,6 @@ class KnowledgeCrosswords(PreferenceDataset):
 
     def __init__(self, knowledge=True, **kwargs):
         self.knowledge = knowledge
-        self.clean_extracted_answer_pattern = r'([A-Z])(\.|\. .+)?$'
         if self.knowledge:
             self.output_name = f"{kwargs['dataset_name']}_w_knowledge"
         else:
@@ -17,7 +16,7 @@ class KnowledgeCrosswords(PreferenceDataset):
         super().__init__(**kwargs)
 
     def load_dataset(self):
-        with open(f'./dataset/{self.dataset_name}.jsonl', 'r', encoding='utf-8') as file:
+        with open(f'../dataset/{self.dataset_name}.jsonl', 'r', encoding='utf-8') as file:
             for line in file:
                 data = json.loads(line.strip())
                 if len(data['blanks']) == 3:
@@ -70,12 +69,6 @@ class KnowledgeCrosswords(PreferenceDataset):
             del data['target']
             del data['knowledge']
 
-    # def process_answer(self, extract):
-    #     # This is the one-shot version
-    #     pattern = r'Final Answer:\s*([A-D])'
-    #     for data in self.train_dataset:
-    #         data['extracted answers'] = [re.search(pattern, response).group(1) if re.search(pattern, response) else None for response in data['responses']]
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Generate and process answers for KnowledgeCrosswords dataset')
@@ -85,7 +78,7 @@ if __name__ == '__main__':
     parser.add_argument('--extract_instruction_name', type=str, default='multi_choice_extract', help='Name of the instruction for extracting answers')
     parser.add_argument('--knowledge', type=bool, default=False, help='Include knowledge or not')
     parser.add_argument('--response_sample_size', type=int, default=10, help='Response sample size')
-    parser.add_argument('--dataset_sample_size', type=int, default=500, help='Dataset sample size')
+    parser.add_argument('--dataset_sample_size', type=int, default=625, help='Dataset sample size')
     parser.add_argument('--load_from_exist', type=bool, default=False, help='Load from existing dataset or not')
 
     args = parser.parse_args()

@@ -1,5 +1,6 @@
 output
 dataset
+model
 .idea
 __pycache__
-temp.py
+temp*.py

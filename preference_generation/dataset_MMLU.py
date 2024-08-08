@@ -38,7 +38,6 @@ class MMLUPro(PreferenceDataset):
             "ori_mmlu-sociology",
             "ori_mmlu-world_religions"
         ]
-        self.clean_extracted_answer_pattern = r'([A-Z])(\.|\. .+)?$'
         super().__init__(**kwargs)
 
     def load_dataset(self):
@@ -72,11 +71,6 @@ class MMLUPro(PreferenceDataset):
             data['correctness'] = correctness
             del data['question']
 
-    # def process_answer(self):
-    #     pattern = r'Final Answer:\s*([A-Z])'
-    #     for data in self.train_dataset:
-    #         data['extracted answers'] = [re.search(pattern, response).group(1) if re.search(pattern, response) else None for response in data['responses']]
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Generate and process answers for MMLUPro dataset')
@@ -85,7 +79,7 @@ if __name__ == '__main__':
     parser.add_argument('--instruction_name', type=str, default='CoT', help='Name of the instruction for generating answers')
     parser.add_argument('--extract_instruction_name', type=str, default='multi_choice_extract', help='Name of the instruction for extracting answers')
     parser.add_argument('--response_sample_size', type=int, default=10, help='Response sample size')
-    parser.add_argument('--dataset_sample_size', type=int, default=500, help='Dataset sample size')
+    parser.add_argument('--dataset_sample_size', type=int, default=625, help='Dataset sample size')
     parser.add_argument('--load_from_exist', type=bool, default=False, help='Load from existing dataset or not')
 
     args = parser.parse_args()

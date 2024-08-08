@@ -9,7 +9,7 @@ class BioGeneration(PreferenceDataset):
         super().__init__(**kwargs)
 
     def load_dataset(self):
-        with open(f'./dataset/{self.dataset_name}.jsonl', 'r', encoding='utf-8') as file:
+        with open(f'../dataset/{self.dataset_name}.jsonl', 'r', encoding='utf-8') as file:
             for line in file:
                 data = json.loads(line.strip())
                 self.dataset.append({
@@ -32,8 +32,8 @@ class BioGeneration(PreferenceDataset):
             fs = FactScorer(
                 model_name='retrieval+ChatGPT',
                 openai_key=OPENAI_KEY,
-                data_dir='./dataset/factscore',
-                cache_dir='../.cache/factscore',
+                data_dir='.../dataset/factscore',
+                cache_dir='.../.cache/factscore',
             )
             for data in tqdm(self.train_dataset, desc='Generating FactScore'):
                 factscore_list = []
@@ -53,7 +53,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset_name', type=str, default='BioGeneration', help='Name of the dataset')
     parser.add_argument('--model_name', type=str, default='llama-3', help='Name of the model')
     parser.add_argument('--instruction_name', type=str, default='default', help='Name of the instruction for generating answers')
-    parser.add_argument('--dataset_sample_size', type=int, default=500, help='Dataset sample size')
+    parser.add_argument('--dataset_sample_size', type=int, default=625, help='Dataset sample size')
     parser.add_argument('--response_sample_size', type=int, default=10, help='Response sample size')
     parser.add_argument('--load_from_exist', type=bool, default=False, help='Load from existing dataset or not')
 

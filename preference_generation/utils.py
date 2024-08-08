@@ -11,7 +11,7 @@ from torch.utils.data import random_split
 from tqdm import tqdm
 from abc import abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, T5EncoderModel
 from huggingface_hub import login
 from typing import List
 
@@ -32,25 +32,25 @@ class PreferenceDataset:
 
     dataset_name: str
     model_name: str
-    dataset: List[dict] = []
     output_name: str = ''
     split_ratio: float = 0.8
-    clean_extracted_answer_pattern: str = ''
 
     def __init__(self, dataset_name, model_name, dataset_sample_size=-1, response_sample_size=10, load_from_exist=False):
         random.seed(42)
+        self.dataset = []
         self.dataset_sample_size = dataset_sample_size
         self.response_sample_size = response_sample_size
         self.dataset_name = dataset_name
         self.model_name = model_name
         assert (self.output_name != '')
-        if load_from_exist and os.path.exists(f'./output/{self.model_name}/{self.output_name}.jsonl') and os.path.exists(f'./output/{self.model_name}/{self.output_name}_test.jsonl'):
+        if load_from_exist and os.path.exists(f'../output/{self.model_name}/{self.output_name}.jsonl') and os.path.exists(f'../output/{self.model_name}/{self.output_name}_test.jsonl'):
+            print('Loading from existing files...')
             self.train_dataset = []
             self.test_dataset = []
-            with open(f'./output/{self.model_name}/{self.output_name}.jsonl', 'r', encoding='utf-8') as file:
+            with open(f'../output/{self.model_name}/{self.output_name}.jsonl', 'r', encoding='utf-8') as file:
                 for line in file:
                     self.train_dataset.append(json.loads(line.strip()))
-            with open(f'./output/{self.model_name}/{self.output_name}_test.jsonl', 'r', encoding='utf-8') as file:
+            with open(f'../output/{self.model_name}/{self.output_name}_test.jsonl', 'r', encoding='utf-8') as file:
                 for line in file:
                     self.test_dataset.append(json.loads(line.strip()))
         else:
@@ -68,12 +68,14 @@ class PreferenceDataset:
 
     def train_test_split(self):
         train_dataset_size = round(len(self.dataset) * self.split_ratio)
+        torch.manual_seed(42)
+        torch.cuda.manual_seed(42)
         self.train_dataset, self.test_dataset = random_split(self.dataset, [train_dataset_size, len(self.dataset) - train_dataset_size])
         self.train_dataset = list(self.train_dataset)
         self.test_dataset = list(self.test_dataset)
 
     def generate_answer(self, instruction_name):
-        with open(f'./instruction/{instruction_name}.txt', encoding='utf-8') as f:
+        with open(f'../instruction/{instruction_name}.txt', encoding='utf-8') as f:
             instruction = ''.join(f.readlines())
         queries = []
         for data in self.train_dataset:
@@ -95,9 +97,9 @@ class PreferenceDataset:
             data['responses'] = responses[i * self.response_sample_size: i * self.response_sample_size + self.response_sample_size]
 
     def process_answer(self, instruction_name, extract_instruction_name):
-        with open(f'./instruction/{instruction_name}.txt', encoding='utf-8') as f:
+        with open(f'../instruction/{instruction_name}.txt', encoding='utf-8') as f:
             instruction = ''.join(f.readlines())
-        with open(f'./instruction/{extract_instruction_name}.txt', encoding='utf-8') as f:
+        with open(f'../instruction/{extract_instruction_name}.txt', encoding='utf-8') as f:
             extract_instruction = ''.join(f.readlines())
         queries = []
         for data in self.train_dataset:
@@ -128,11 +130,11 @@ class PreferenceDataset:
             data['extracted answers'] = responses[i * self.response_sample_size: i * self.response_sample_size + self.response_sample_size]
 
     def save_dataset(self):
-        os.makedirs(f'./output/{self.model_name}/', exist_ok=True)
-        with open(f'./output/{self.model_name}/{self.output_name}.jsonl', 'w', encoding='utf-8') as file:
+        os.makedirs(f'../output/{self.model_name}/', exist_ok=True)
+        with open(f'../output/{self.model_name}/{self.output_name}.jsonl', 'w', encoding='utf-8') as file:
             for data in self.train_dataset:
                 file.write(json.dumps(data) + '\n')
-        with open(f'./output/{self.model_name}/{self.output_name}_test.jsonl', 'w', encoding='utf-8') as file:
+        with open(f'../output/{self.model_name}/{self.output_name}_test.jsonl', 'w', encoding='utf-8') as file:
             for data in self.test_dataset:
                 file.write(json.dumps(data) + '\n')
 
@@ -147,13 +149,11 @@ def query_openai(prompt, index, model_name, mode):
     elif mode == 'evaluate':
         generate_kwargs = {
             "temperature": 0.0,
-            # TODO
-            # "logprobs": True,
         }
     else:
         generate_kwargs = {
             "temperature": 0.0,
-            "max_tokens": 10,
+            "max_tokens": 20,
         }
     retry_count = 100
     retry_interval = 10
@@ -173,11 +173,6 @@ def query_openai(prompt, index, model_name, mode):
                     if -prob.logprob != 9999.0:
                         log_prob.append(-prob.logprob)
                 log_prob = sum(log_prob) / len(log_prob)
-            # TODO
-            # elif mode == 'evaluate':
-            #     log_prob = []
-            #     for prob in response.choices[0].logprobs.content:
-            #         log_prob.append((prob.token, prob.logprob))
             return index, log_prob, msg
 
         except Exception as e:
@@ -212,7 +207,12 @@ def batch_query_open_sourced_llm(prompt_list, model_name, mode='generate'):
     :return:
     """
     login(token='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')
-    model = AutoModelForCausalLM.from_pretrained(model_name, device_map='balanced_low_0', torch_dtype=torch.bfloat16)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name,
+        device_map='auto',
+        torch_dtype=torch.bfloat16
+    )
+    model.eval()
     tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side='left')
     tokenizer.pad_token = tokenizer.eos_token
 
@@ -228,7 +228,7 @@ def batch_query_open_sourced_llm(prompt_list, model_name, mode='generate'):
             "return_dict_in_generate": True,
             "output_logits": True,
         }
-        batch_size = 5
+        batch_size = 2
     elif mode == 'evaluate':
         generate_kwargs = {
             "do_sample": False,
@@ -237,9 +237,6 @@ def batch_query_open_sourced_llm(prompt_list, model_name, mode='generate'):
             "max_new_tokens": 1024,
             "pad_token_id": tokenizer.eos_token_id,
             "eos_token_id": tokenizer.eos_token_id,
-            # TODO
-            # "return_dict_in_generate": True,
-            # "output_logits": True,
         }
         batch_size = 1
     else:
@@ -276,19 +273,6 @@ def batch_query_open_sourced_llm(prompt_list, model_name, mode='generate'):
                     log_probs.append(
                         answer_log_prob[j, :][sequences[j, :] != tokenizer.eos_token_id].mean().item()
                     )
-            # TODO
-            # elif mode == 'evaluate':
-            #     sequences = outputs.sequences[:, input_ids.shape[-1]:].cpu()
-            #     logits = [logit.cpu() for logit in outputs.logits]
-            #     log_prob = -F.log_softmax(torch.stack(logits, dim=1), dim=-1)
-            #     answer_log_prob = log_prob.gather(-1, sequences[:, :, None]).squeeze(-1)
-            #     for j in range(end - begin):
-            #         l = answer_log_prob[j, :][sequences[j, :] != tokenizer.eos_token_id].item()
-            #         t = tokenizer.convert_ids_to_tokens(sequences[j, :][sequences[j, :] != tokenizer.eos_token_id])
-            #         lt_pair = []
-            #         for l_, t_ in zip(l, t):
-            #             lt_pair.append((t_, l_))
-            #         log_probs.append(lt_pair)
             else:
                 sequences = outputs[:, input_ids.shape[-1]:].cpu()
             texts = tokenizer.batch_decode(sequences, skip_special_tokens=True)
@@ -330,44 +314,57 @@ def calculate_similarity_by_ada(question, answers, correct_answer_index):
     return cosine_similarity.tolist()
 
 
-def get_normalized_probabilities(instructions, answers, model_name="meta-llama/Meta-Llama-3-8B", batch_size=2):
-    # Load the model_name and tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(model_name, device_map='auto', load_in_8bit=True)
+class Vera:
+    def __init__(self):
+        self.tokenizer = AutoTokenizer.from_pretrained('liujch1998/vera')
+        self.model = T5EncoderModel.from_pretrained(
+            'liujch1998/vera',
+            device_map='auto',
+            torch_dtype=torch.bfloat16
+        )
+        self.model.D = self.model.shared.embedding_dim
+        self.linear = torch.nn.Linear(self.model.D, 1, dtype=self.model.dtype)
+        self.linear.weight = torch.nn.Parameter(self.model.shared.weight[32099, :].unsqueeze(0))
+        self.linear.bias = torch.nn.Parameter(self.model.shared.weight[32098, 0].unsqueeze(0))
+        self.model.eval()
+        self.t = self.model.shared.weight[32097, 0].item()
 
-    tokenizer.pad_token = tokenizer.eos_token
-    concat_queries = [instruction + tokenizer.bos_token + answer for instruction, answer in zip(instructions, answers)]
-
-    # Tokenize all instructions and answers
-    instruction_tokens = tokenizer(instructions, return_tensors="pt", padding=True)
-    answer_tokens = tokenizer(answers, return_tensors="pt", padding=True)
-    query_tokens = tokenizer(concat_queries, return_tensors="pt", padding=True)
-
-    # Get the log probabilities from the model_name
-    probabilities = []
-    with torch.no_grad():
-        for begin in tqdm(range(0, len(instructions), batch_size), desc="generating probability..."):
-            end = begin + batch_size if begin + batch_size < len(instructions) else len(instructions)
-            input_ids = query_tokens["input_ids"][begin: end].to(model.device)
-            attention_mask = query_tokens["attention_mask"][begin: end].to(model.device)
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=input_ids)
-            log_probs = torch.nn.functional.log_softmax(outputs.logits, dim=-1)
-            for i in range(min(end - begin, batch_size)):
-                instruction_len = instruction_tokens["attention_mask"][i + begin].sum()
-                answer_len = answer_tokens["attention_mask"][i + begin].sum()
-
-                # Get log probabilities for the answer tokens
-                answer_log_probs = log_probs[i, instruction_len: instruction_len + answer_len - 1, :]
-                answer_log_probs = answer_log_probs.gather(-1, answer_tokens["input_ids"][begin + i, 1: answer_len, None].to(model.device)).squeeze(-1)
-
-                # Calculate the log probability of the entire answer
-                normalized_prob = answer_log_probs.mean().cpu().item()
-                probabilities.append(normalized_prob)
-
-    return probabilities
+    def get_scores(self, statements):
+        tokens = self.tokenizer(statements, return_tensors='pt', padding=True)
+        tokens.attention_mask = tokens.attention_mask.to(self.linear.weight.device)
+        tokens.input_ids = tokens.input_ids.to(self.linear.weight.device)
+        with torch.no_grad():
+            output = self.model(**tokens)
+            last_indices = tokens.attention_mask.sum(dim=1, keepdim=True) - 1
+            last_indices = last_indices.unsqueeze(-1).expand(-1, -1, self.model.D)
+            last_hidden_state = output.last_hidden_state.to(self.linear.weight.device)
+            hidden = last_hidden_state.gather(dim=1, index=last_indices).squeeze(1)
+            logits = self.linear(hidden).squeeze(-1)
+            logits_calibrated = logits / self.t
+            scores_calibrated = logits_calibrated.sigmoid()
+        return scores_calibrated.cpu().tolist()
 
 
-def clean_extracted_answers(dataset, pattern=r'([A-Z])(\.|\. .+)?$'):
+def get_vera_score_multihop(model: Vera, context, conditions, options):
+    scores = [0.0 for _ in range(len(options))]
+    for condition in conditions:
+        statements = []
+        for option in options:
+            statements.append(context + ' ' + option + ' is ' + condition + '.')
+        vera_scores = model.get_scores(statements)
+        scores = [s + v for s, v in zip(scores, vera_scores)]
+    return [s / len(conditions) for s in scores]
+
+
+def get_vera_score(model: Vera, context, options):
+    statements = []
+    for option in options:
+        statements.append(context + option)
+    vera_scores = model.get_scores(statements)
+    return vera_scores
+
+
+def clean_extracted_answers(dataset, pattern=r'([A-Z])(\.|\. .+)?$', map_into_index=True):
     pattern = re.compile(pattern)
     for data in dataset.train_dataset:
         new_extracted_answers = []
@@ -377,7 +374,7 @@ def clean_extracted_answers(dataset, pattern=r'([A-Z])(\.|\. .+)?$'):
                 result = match.group(1)
                 if result.isdigit():
                     result = int(result)
-                else:
+                elif map_into_index:
                     result = letter2idx[result]
             else:
                 result = None

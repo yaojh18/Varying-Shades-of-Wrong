@@ -7,18 +7,10 @@ class NLGraph(PreferenceDataset):
 
     def __init__(self, **kwargs):
         self.output_name = kwargs['dataset_name']
-        if kwargs['dataset_name'] == 'NLGraph_shortest_path':
-            self.clean_extracted_answer_pattern = r'The total weight is (\d+)'
-        elif kwargs['dataset_name'] == 'NLGraph_maximum_flow':
-            self.clean_extracted_answer_pattern = r'The maximum flow is (\d+)'
-        elif kwargs['dataset_name'] == 'NLGraph_matching':
-            self.clean_extracted_answer_pattern = r'The maximum number of matches is (\d+)'
-        else:
-            raise NotImplementedError
         super().__init__(**kwargs)
 
     def load_dataset(self):
-        with open(f'./dataset/{self.dataset_name}.json', 'r', encoding='utf-8') as file:
+        with open(f'../dataset/{self.dataset_name}.json', 'r', encoding='utf-8') as file:
             dataset = json.load(file)
             if self.dataset_name == 'NLGraph_shortest_path':
                 pattern = r'total weight of (\d+)'
@@ -46,18 +38,6 @@ class NLGraph(PreferenceDataset):
             random.seed(42)
             self.dataset = random.sample(self.dataset, sample_size)
 
-    # def process_answer(self):
-    #     if self.dataset_name == 'NLGraph_shortest_path':
-    #         pattern = r'total weight of (\d+)'
-    #     elif self.dataset_name == 'NLGraph_maximum_flow':
-    #         pattern = r'maximum flow.*?is (\d+)'
-    #     elif self.dataset_name == 'NLGraph_matching':
-    #         pattern = r'(\d+) applicants can find'
-    #     else:
-    #         raise NotImplementedError
-    #     for data in self.train_dataset:
-    #         data['extracted answers'] = [re.search(pattern, response).group(1) if re.search(pattern, response) else None for response in data['responses']]
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Generate and process answers for NLGraph dataset')
@@ -66,7 +46,7 @@ if __name__ == '__main__':
     parser.add_argument('--instruction_name', type=str, default='CoT', help='Name of the instruction for generating answers')
     parser.add_argument('--extract_instruction_name', type=str, default='shortest_path_extract', help='Name of the instruction for extracting answers')
     parser.add_argument('--response_sample_size', type=int, default=10, help='Response sample size')
-    parser.add_argument('--dataset_sample_size', type=int, default=500, help='Dataset sample size')
+    parser.add_argument('--dataset_sample_size', type=int, default=625, help='Dataset sample size')
     parser.add_argument('--load_from_exist', type=bool, default=False, help='Load from existing dataset or not')
 
     args = parser.parse_args()
