@@ -1,12 +1,14 @@
 import argparse
 from datasets import load_dataset
 from transformers import AutoModelForSequenceClassification
-from utils import *
+from preference_generation.utils import *
 
 
-class HellaSwag(PreferenceDataset):
+class HellaSwag(RawPreferenceDataset):
     def __init__(self, **kwargs):
         self.output_name = kwargs['dataset_name']
+        self.extract_pattern = r'([A-Z])(\.|\. .+)?$'
+        self.map_into_index = True
         super().__init__(**kwargs)
 
     def load_dataset(self):
@@ -64,10 +66,4 @@ if __name__ == '__main__':
     hs_dataset.save_dataset()
     hs_dataset.generate_answer(instruction_name=args.instruction_name)
     hs_dataset.process_answer(instruction_name=args.instruction_name, extract_instruction_name=args.extract_instruction_name)
-    clean_extracted_answers(hs_dataset, r'([A-Z])(\.|\. .+)?$')
     hs_dataset.save_dataset()
-    correct_count = 0
-    for data in hs_dataset.train_dataset:
-        if data['extracted answers'][0] is not None and data['correctness'][0][data['extracted answers'][0]] == 1.0:
-            correct_count += 1
-    print(correct_count / len(hs_dataset.train_dataset))

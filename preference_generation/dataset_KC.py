@@ -1,8 +1,8 @@
 import argparse
-from utils import *
+from preference_generation.utils import *
 
 
-class KnowledgeCrosswords(PreferenceDataset):
+class KnowledgeCrosswords(RawPreferenceDataset):
     """
     Fix correct answer number to 3 only. Easier for future comparison
     """
@@ -13,6 +13,8 @@ class KnowledgeCrosswords(PreferenceDataset):
             self.output_name = f"{kwargs['dataset_name']}_w_knowledge"
         else:
             self.output_name = f"{kwargs['dataset_name']}_wo_knowledge"
+        self.extract_pattern = r'([A-Z])(\.|\. .+)?$'
+        self.map_into_index = True
         super().__init__(**kwargs)
 
     def load_dataset(self):
@@ -94,5 +96,4 @@ if __name__ == '__main__':
 
     kc_dataset.generate_answer(instruction_name=args.instruction_name)
     kc_dataset.process_answer(instruction_name=args.instruction_name, extract_instruction_name=args.extract_instruction_name)
-    clean_extracted_answers(kc_dataset, r'([A-Z])(\.|\. .+)?$')
     kc_dataset.save_dataset()

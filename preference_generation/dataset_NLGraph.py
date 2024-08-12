@@ -1,12 +1,21 @@
 import re
 import argparse
-from utils import *
+from preference_generation.utils import *
 
 
-class NLGraph(PreferenceDataset):
+class NLGraph(RawPreferenceDataset):
 
     def __init__(self, **kwargs):
         self.output_name = kwargs['dataset_name']
+        if kwargs['dataset_name'] == 'NLGraph_shortest_path':
+            self.extract_pattern = r'The total weight is (\d+)'
+        elif kwargs['dataset_name'] == 'NLGraph_maximum_flow':
+            self.extract_pattern = r'The maximum flow is (\d+)'
+        elif kwargs['dataset_name'] == 'NLGraph_matching':
+            self.extract_pattern = r'The maximum number of matches is (\d+)'
+        else:
+            raise NotImplementedError('NLGraph is not support. You need to extract the number manually.')
+        self.map_into_index = False
         super().__init__(**kwargs)
 
     def load_dataset(self):
@@ -61,12 +70,4 @@ if __name__ == '__main__':
 
     nlgraph_dataset.generate_answer(instruction_name=args.instruction_name)
     nlgraph_dataset.process_answer(instruction_name=args.instruction_name, extract_instruction_name=args.extract_instruction_name)
-    if nlgraph_dataset.dataset_name == 'NLGraph_shortest_path':
-        clean_extracted_answers(nlgraph_dataset, r'The total weight is (\d+)')
-    elif nlgraph_dataset.dataset_name == 'NLGraph_maximum_flow':
-        clean_extracted_answers(nlgraph_dataset, r'The maximum flow is (\d+)')
-    elif nlgraph_dataset.dataset_name == 'NLGraph_matching':
-        clean_extracted_answers(nlgraph_dataset, r'The maximum number of matches is (\d+)')
-    else:
-        raise NotImplementedError
     nlgraph_dataset.save_dataset()

@@ -1,6 +1,8 @@
 import random
+import re
 
-from metric import *
+from preference_generation.utils import *
+from preference_generation.metric import *
 
 
 def merge():
@@ -202,6 +204,9 @@ def form_llama3_queries():
                 if dataset_name.find('NLGraph') >= 0:
                     label = [-abs(int(data['correct_answer']) - e) for e in data['extracted answers'] if e is not None]
                     is_correct = [l == 0 for l in label]
+                elif dataset_name == 'BioGeneration':
+                    label = [fs for fs in data['factscore'] if fs is not None]
+                    is_correct = [fs == 1.0 for fs in data['factscore'] if fs is not None]
                 else:
                     label = [c[e] for e, c in zip(data['extracted answers'], data['correctness']) if e is not None]
                     is_correct = [l == max(data['correctness'][0]) for l in label]
@@ -269,5 +274,58 @@ def form_llama3_queries():
                     file.write(json.dumps(data) + '\n')
 
 
+def process_llama3_queries():
+    dataset_name_list = ['KC', 'COM2', 'NLGraph', 'NLGraph_shortest_path', 'ChessPuzzle']
+    model_name_list = ['gpt-3.5', 'gpt-4', 'llama-3']
+    for model_name in model_name_list:
+        for dataset_name in dataset_name_list:
+            remote_responses = []
+            evaluation_jsonl = []
+            with open(f'../output/remote/short/pairwise_{model_name}_llama-3_{dataset_name}_output.jsonl', 'r', encoding='utf-8') as file:
+                for line in file:
+                    remote_responses.append(json.loads(line.strip()))
+            remote_responses.sort(key=lambda x: x['id'])
+            with open(f'../output/pairwise/{model_name}/llama-3/{dataset_name}.jsonl', 'r', encoding='utf-8') as file:
+                for line in file:
+                    evaluation_jsonl.append(json.loads(line.strip()))
+            pattern = re.compile(r'Preferred output: (\d+)')
+            for eval_json in evaluation_jsonl:
+                eval_json['evaluation'] = remote_responses[eval_json['evaluation']]['output']['content']
+                match = re.search(pattern, eval_json['evaluation'])
+                if match is not None:
+                    eval_json['extracted_evaluation'] = int(match.group(1))
+                else:
+                    eval_json['extracted_evaluation'] = None
+                eval_json['reversed_evaluation'] = remote_responses[eval_json['reversed_evaluation']]['output']['content']
+                match = re.search(pattern, eval_json['reversed_evaluation'])
+                if match is not None:
+                    eval_json['reversed_extracted_evaluation'] = int(match.group(1))
+                else:
+                    eval_json['reversed_extracted_evaluation'] = None
+            with open(f'../output/pairwise/{model_name}/llama-3/{dataset_name}.jsonl', 'w', encoding='utf-8') as file:
+                for data in evaluation_jsonl:
+                    file.write(json.dumps(data) + '\n')
+            dataset = load_dataset(dataset_name, model_name)
+            remote_responses = []
+            with open(f'../output/remote/long/{model_name}_{dataset.output_name}_output.jsonl', 'r', encoding='utf-8') as file:
+                for line in file:
+                    remote_responses.append(json.loads(line.strip()))
+            remote_responses.sort(key=lambda x: x['id'])
+            pattern = re.compile(r"Score: (\d+)")
+            for data in dataset.train_dataset:
+                rewards = []
+                responses = []
+                for res_idx in data['llama-3_reward_5_responses']:
+                    responses.append(remote_responses[res_idx]['output']['content'])
+                    scores = re.findall(pattern, responses[-1])
+                    scores = list(map(int, scores))
+                    if len(scores) != 5:
+                        scores = [None] * 5
+                    rewards += scores
+                data['llama-3_reward_5_responses'] = responses
+                data['llama-3_reward_5'] = rewards
+            dataset.save_dataset()
+
+
 if __name__ == '__main__':
-    form_llama3_queries()
+    pass

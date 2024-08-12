@@ -1,0 +1,11 @@
+def get_extract_instruction_name(dataset_name):
+    if dataset_name == 'NLGraph_shortest_path':
+        return 'shortest_path_extract'
+    elif dataset_name == 'NLGraph_maximum_flow':
+        return 'maximum_flow_extract'
+    elif dataset_name == 'NLGraph_matching':
+        return 'matching_extract'
+    elif dataset_name == 'BioGeneration' or dataset_name == 'NLGraph':
+        raise NotImplementedError
+    else:
+        return 'multi_choice_extract'

@@ -1,17 +1,18 @@
 import argparse
 import chess
 from chess import Board, Move
-from chess.engine import SimpleEngine, Limit
+from chess.engine import SimpleEngine
 from datasets import load_dataset
-import asyncio
-from utils import *
+from preference_generation.utils import *
 
 
-class ChessPuzzle(PreferenceDataset):
+class ChessPuzzle(RawPreferenceDataset):
 
     def __init__(self, **kwargs):
         self.output_name = kwargs['dataset_name']
-        self.STOCKFISH_PATH = '.../model/stockfish_windows/stockfish-windows-x86-64-avx2.exe'
+        self.STOCKFISH_PATH = '../model/stockfish_windows/stockfish-windows-x86-64-avx2.exe'
+        self.extract_pattern = r'([A-Z])(\.|\. .+)?$'
+        self.map_into_index = False
         super().__init__(**kwargs)
 
     def load_dataset(self):
@@ -71,14 +72,14 @@ class ChessPuzzle(PreferenceDataset):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Generate and save answers for ChessPuzzle dataset')
     parser.add_argument('--dataset_name', type=str, default='ChessPuzzle', help='Name of the dataset')
-    parser.add_argument('--model_name', type=str, default='gpt-3.5', help='Name of the model')
+    parser.add_argument('--model_name', type=str, default='llama-3', help='Name of the model')
     parser.add_argument('--instruction_name', type=str, default='CoT',
                         help='Name of the instruction for generating answers')
     parser.add_argument('--extract_instruction_name', type=str, default='multi_choice_extract',
                         help='Name of the instruction for extracting answers')
     parser.add_argument('--dataset_sample_size', type=int, default=625, help='Dataset sample size')
     parser.add_argument('--response_sample_size', type=int, default=10, help='Response sample size')
-    parser.add_argument('--load_from_exist', type=bool, default=True, help='Load from existing dataset or not')
+    parser.add_argument('--load_from_exist', type=bool, default=False, help='Load from existing dataset or not')
 
     args = parser.parse_args()
     chess_dataset = ChessPuzzle(
@@ -90,7 +91,6 @@ if __name__ == '__main__':
     )
     chess_dataset.generate_answer(instruction_name=args.instruction_name)
     chess_dataset.process_answer(instruction_name=args.instruction_name, extract_instruction_name=args.extract_instruction_name)
-    clean_extracted_answers(chess_dataset, r'([A-Z])(\.|\. .+)?$')
     chess_dataset.save_dataset()
 
     # clean_extracted_answers(chess_dataset, r'([KQRBN]?[a-h]?[1-8]?[x-]?([a-h][1-8]|O-O|O-O-O)=?[QRBN]?[\+\#]?)', map_into_index=False)

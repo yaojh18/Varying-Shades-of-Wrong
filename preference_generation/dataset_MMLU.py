@@ -1,9 +1,9 @@
 import argparse
 from datasets import load_dataset
-from utils import *
+from preference_generation.utils import *
 
 
-class MMLUPro(PreferenceDataset):
+class MMLUPro(RawPreferenceDataset):
     """
     Things need considering when parsing:
     1. Generated answer may not have a desired format. Need to manually add rules.
@@ -38,6 +38,8 @@ class MMLUPro(PreferenceDataset):
             "ori_mmlu-sociology",
             "ori_mmlu-world_religions"
         ]
+        self.extract_pattern = r'([A-Z])(\.|\. .+)?$'
+        self.map_into_index = True
         super().__init__(**kwargs)
 
     def load_dataset(self):
@@ -79,7 +81,7 @@ if __name__ == '__main__':
     parser.add_argument('--instruction_name', type=str, default='CoT', help='Name of the instruction for generating answers')
     parser.add_argument('--extract_instruction_name', type=str, default='multi_choice_extract', help='Name of the instruction for extracting answers')
     parser.add_argument('--response_sample_size', type=int, default=10, help='Response sample size')
-    parser.add_argument('--dataset_sample_size', type=int, default=625, help='Dataset sample size')
+    parser.add_argument('--dataset_sample_size', type=int, default=10, help='Dataset sample size')
     parser.add_argument('--load_from_exist', type=bool, default=False, help='Load from existing dataset or not')
 
     args = parser.parse_args()
@@ -94,5 +96,4 @@ if __name__ == '__main__':
 
     mmlu_dataset.generate_answer(instruction_name=args.instruction_name)
     mmlu_dataset.process_answer(instruction_name=args.instruction_name, extract_instruction_name=args.extract_instruction_name)
-    clean_extracted_answers(mmlu_dataset, r'([A-Z])(\.|\. .+)?$')
     mmlu_dataset.save_dataset()

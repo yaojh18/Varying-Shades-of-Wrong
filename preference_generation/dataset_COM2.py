@@ -1,12 +1,14 @@
 import argparse
 
 import pandas as pd
-from utils import *
+from preference_generation.utils import *
 
 
-class COM2(PreferenceDataset):
+class COM2(RawPreferenceDataset):
     def __init__(self, **kwargs):
         self.output_name = kwargs['dataset_name']
+        self.extract_pattern = r'([A-Z])(\.|\. .+)?$'
+        self.map_into_index = True
         super().__init__(**kwargs)
 
     def load_dataset(self):
@@ -55,7 +57,7 @@ class COM2(PreferenceDataset):
         del vera_model
 
 
-# class COM2(PreferenceDataset):
+# class COM2(RawPreferenceDataset):
 #     def __init__(self, **kwargs):
 #         self.output_name = kwargs['dataset_name']
 #         super().__init__(**kwargs)
@@ -108,5 +110,4 @@ if __name__ == '__main__':
     )
     com2_dataset.generate_answer(instruction_name=args.instruction_name)
     com2_dataset.process_answer(instruction_name=args.instruction_name, extract_instruction_name=args.extract_instruction_name)
-    clean_extracted_answers(com2_dataset, r'([A-Z])(\.|\. .+)?$')
     com2_dataset.save_dataset()

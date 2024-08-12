@@ -12,8 +12,9 @@ from tqdm import tqdm
 from abc import abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from transformers import AutoTokenizer, AutoModelForCausalLM, T5EncoderModel
+from peft import PeftModel
 from huggingface_hub import login
-from typing import List
+
 
 OPENAI_KEY = 'sk-proj-BJiODPrgTGI8keUENjdmT3BlbkFJCAQOWpDkd50EHnvp2ILL'
 idx2letter = [
@@ -28,14 +29,16 @@ letter2idx = {
 }
 
 
-class PreferenceDataset:
+class RawPreferenceDataset:
 
     dataset_name: str
     model_name: str
+    extract_pattern: str
+    map_into_index: bool
     output_name: str = ''
     split_ratio: float = 0.8
 
-    def __init__(self, dataset_name, model_name, dataset_sample_size=-1, response_sample_size=10, load_from_exist=False):
+    def __init__(self, dataset_name, model_name, dataset_sample_size=-1, response_sample_size=10, load_from_exist=False, load_test=False):
         random.seed(42)
         self.dataset = []
         self.dataset_sample_size = dataset_sample_size
@@ -43,16 +46,18 @@ class PreferenceDataset:
         self.dataset_name = dataset_name
         self.model_name = model_name
         assert (self.output_name != '')
-        if load_from_exist and os.path.exists(f'../output/{self.model_name}/{self.output_name}.jsonl') and os.path.exists(f'../output/{self.model_name}/{self.output_name}_test.jsonl'):
-            print('Loading from existing files...')
+        if load_from_exist and load_test and os.path.exists(f'../output/{self.model_name}/{self.output_name}_test.jsonl'):
+            self.train_dataset = []
+            self.test_dataset = []
+            with open(f'../output/{self.model_name}/{self.output_name}_test.jsonl', 'r', encoding='utf-8') as file:
+                for line in file:
+                    self.test_dataset.append(json.loads(line.strip()))
+        elif load_from_exist and os.path.exists(f'../output/{self.model_name}/{self.output_name}.jsonl'):
             self.train_dataset = []
             self.test_dataset = []
             with open(f'../output/{self.model_name}/{self.output_name}.jsonl', 'r', encoding='utf-8') as file:
                 for line in file:
                     self.train_dataset.append(json.loads(line.strip()))
-            with open(f'../output/{self.model_name}/{self.output_name}_test.jsonl', 'r', encoding='utf-8') as file:
-                for line in file:
-                    self.test_dataset.append(json.loads(line.strip()))
         else:
             self.load_dataset()
             self.precess_dataset(sample_size=self.dataset_sample_size)
@@ -74,11 +79,11 @@ class PreferenceDataset:
         self.train_dataset = list(self.train_dataset)
         self.test_dataset = list(self.test_dataset)
 
-    def generate_answer(self, instruction_name):
+    def generate_answer(self, instruction_name, split='train', key=None):
         with open(f'../instruction/{instruction_name}.txt', encoding='utf-8') as f:
             instruction = ''.join(f.readlines())
         queries = []
-        for data in self.train_dataset:
+        for data in self.train_dataset if split == 'train' else self.test_dataset:
             if 'choices' in data:
                 for choice in data['choices']:
                     queries.append([{'role': 'user', 'content': instruction + data['query'] + choice}])
@@ -88,21 +93,29 @@ class PreferenceDataset:
             log_probs, responses = batch_query_openai(queries, model_name='gpt-4o')
         elif self.model_name == 'gpt-3.5':
             log_probs, responses = batch_query_openai(queries, model_name='gpt-3.5-turbo')
-        elif self.model_name == 'llama-3':
+        elif self.model_name == 'llama-3' or key == 'ori':
             log_probs, responses = batch_query_open_sourced_llm(queries, model_name='meta-llama/Meta-Llama-3-8B-Instruct')
+        elif key is not None:
+            log_probs, responses = batch_query_open_sourced_llm(
+                queries,
+                model_name='meta-llama/Meta-Llama-3-8B-Instruct',
+                peft_dir=f'../output/model/{self.dataset_name}/{key}/'
+            )
         else:
             raise NotImplementedError
+        responses_name = 'responses' if key is None else key + '_responses'
+        log_probs_name = 'factscore' if key is None else key + '_log_probs'
         for i, data in enumerate(self.train_dataset):
-            data['log_probs'] = log_probs[i * self.response_sample_size: i * self.response_sample_size + self.response_sample_size]
-            data['responses'] = responses[i * self.response_sample_size: i * self.response_sample_size + self.response_sample_size]
+            data[log_probs_name] = log_probs[i * self.response_sample_size: i * self.response_sample_size + self.response_sample_size]
+            data[responses_name] = responses[i * self.response_sample_size: i * self.response_sample_size + self.response_sample_size]
 
-    def process_answer(self, instruction_name, extract_instruction_name):
+    def process_answer(self, instruction_name, extract_instruction_name, split='train', key=None):
         with open(f'../instruction/{instruction_name}.txt', encoding='utf-8') as f:
             instruction = ''.join(f.readlines())
         with open(f'../instruction/{extract_instruction_name}.txt', encoding='utf-8') as f:
             extract_instruction = ''.join(f.readlines())
         queries = []
-        for data in self.train_dataset:
+        for data in self.train_dataset if split == 'train' else self.test_dataset:
             if 'choices' in data:
                 for choice, response in zip(data['choices'], data['responses']):
                     queries.append([
@@ -121,22 +134,37 @@ class PreferenceDataset:
             _, responses = batch_query_openai(queries, model_name='gpt-4o', mode='extract')
         elif self.model_name == 'gpt-3.5':
             _, responses = batch_query_openai(queries, model_name='gpt-3.5-turbo', mode='extract')
-        elif self.model_name == 'llama-3':
+        elif self.model_name == 'llama-3' or key == 'ori':
             _, responses = batch_query_open_sourced_llm(queries, model_name='meta-llama/Meta-Llama-3-8B-Instruct', mode='extract')
+        elif key is not None:
+            log_probs, responses = batch_query_open_sourced_llm(
+                queries,
+                model_name='meta-llama/Meta-Llama-3-8B-Instruct',
+                peft_dir=f'../output/model/{self.dataset_name}/{key}/',
+                mode='extract'
+            )
         else:
             raise NotImplementedError
-
+        extracted_answers_name = 'extracted_answers' if key is None else key + '_extracted_answers'
         for i, data in enumerate(self.train_dataset):
-            data['extracted answers'] = responses[i * self.response_sample_size: i * self.response_sample_size + self.response_sample_size]
+            data[extracted_answers_name] = responses[i * self.response_sample_size: i * self.response_sample_size + self.response_sample_size]
+        clean_extracted_answers(
+            dataset=self.train_dataset if split == 'train' else self.test_dataset,
+            key=extracted_answers_name,
+            pattern=self.extract_pattern,
+            map_into_index=self.map_into_index
+        )
 
     def save_dataset(self):
         os.makedirs(f'../output/{self.model_name}/', exist_ok=True)
-        with open(f'../output/{self.model_name}/{self.output_name}.jsonl', 'w', encoding='utf-8') as file:
-            for data in self.train_dataset:
-                file.write(json.dumps(data) + '\n')
-        with open(f'../output/{self.model_name}/{self.output_name}_test.jsonl', 'w', encoding='utf-8') as file:
-            for data in self.test_dataset:
-                file.write(json.dumps(data) + '\n')
+        if len(self.train_dataset) > 0:
+            with open(f'../output/{self.model_name}/{self.output_name}.jsonl', 'w', encoding='utf-8') as file:
+                for data in self.train_dataset:
+                    file.write(json.dumps(data) + '\n')
+        if len(self.test_dataset) > 0:
+            with open(f'../output/{self.model_name}/{self.output_name}_test.jsonl', 'w', encoding='utf-8') as file:
+                for data in self.test_dataset:
+                    file.write(json.dumps(data) + '\n')
 
 
 def query_openai(prompt, index, model_name, mode):
@@ -199,8 +227,9 @@ def batch_query_openai(prompt_list, model_name="gpt-3.5-turbo", mode='generate')
     return [log_prob_dict[i] for i in range(len(prompt_list))], [response_dict[i] for i in range(len(prompt_list))]
 
 
-def batch_query_open_sourced_llm(prompt_list, model_name, mode='generate'):
+def batch_query_open_sourced_llm(prompt_list, model_name, peft_dir=None, mode='generate'):
     """
+    :param peft_dir:
     :param mode:
     :param model_name:
     :param prompt_list:
@@ -210,11 +239,14 @@ def batch_query_open_sourced_llm(prompt_list, model_name, mode='generate'):
     model = AutoModelForCausalLM.from_pretrained(
         model_name,
         device_map='auto',
-        torch_dtype=torch.bfloat16
+        torch_dtype=torch.bfloat16,
     )
+    if peft_dir is not None:
+        model = PeftModel.from_pretrained(model, peft_dir, torch_dtype=torch.bfloat16)
     model.eval()
-    tokenizer = AutoTokenizer.from_pretrained(model_name, padding_side='left')
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
     tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = 'left'
 
     # Tokenize all instructions and answers
     if mode == 'generate':
@@ -228,7 +260,7 @@ def batch_query_open_sourced_llm(prompt_list, model_name, mode='generate'):
             "return_dict_in_generate": True,
             "output_logits": True,
         }
-        batch_size = 2
+        batch_size = 5
     elif mode == 'evaluate':
         generate_kwargs = {
             "do_sample": False,
@@ -260,9 +292,12 @@ def batch_query_open_sourced_llm(prompt_list, model_name, mode='generate'):
                 prompt_list[begin: end],
                 add_generation_prompt=True,
                 padding=True,
+                return_tensors="pt",
+                return_dict=True
             )
-            input_ids = torch.LongTensor(query_tokens).to("cuda")
-            outputs = model.generate(input_ids=input_ids, **generate_kwargs)
+            input_ids = query_tokens['input_ids'].to('cuda')
+            attention_mask = query_tokens['attention_mask'].to('cuda')
+            outputs = model.generate(input_ids=input_ids, attention_mask=attention_mask, **generate_kwargs)
 
             if mode == 'generate':
                 sequences = outputs.sequences[:, input_ids.shape[-1]:].cpu()
@@ -364,11 +399,11 @@ def get_vera_score(model: Vera, context, options):
     return vera_scores
 
 
-def clean_extracted_answers(dataset, pattern=r'([A-Z])(\.|\. .+)?$', map_into_index=True):
+def clean_extracted_answers(dataset: list, key, pattern, map_into_index=True):
     pattern = re.compile(pattern)
-    for data in dataset.train_dataset:
+    for data in dataset:
         new_extracted_answers = []
-        for d in data['extracted answers']:
+        for d in data[key]:
             match = pattern.search(d)
             if match:
                 result = match.group(1)

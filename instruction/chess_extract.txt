@@ -1,1 +1,0 @@
-Please conclude the recommended move in SAN format from your previous response, start your answer with "The recommended move is". However, if you don't give any recommended move in your previous response, you should reply "None".
