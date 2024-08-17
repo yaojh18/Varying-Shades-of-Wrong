@@ -109,7 +109,7 @@ def sample_new_test_dataset():
 
     kc_train_queries = []
     kc_test_dataset = []
-    with open(f'.../output/gpt-3.5/KC_wo_knowledge.jsonl', 'r', encoding='utf-8') as file:
+    with open(f'../output/gpt-3.5/KC_wo_knowledge.jsonl', 'r', encoding='utf-8') as file:
         for line in file:
             data = json.loads(line.strip())
             kc_train_queries.append(data['query'])
@@ -126,12 +126,12 @@ def sample_new_test_dataset():
             kc_test_dataset.append(data)
     random.seed(42)
     kc_test_dataset = random.sample(kc_test_dataset, 125)
-    with open(f'.../output/gpt-3.5/KC_wo_knowledge_test.jsonl', 'w', encoding='utf-8') as file:
+    with open(f'../output/gpt-3.5/KC_wo_knowledge_test.jsonl', 'w', encoding='utf-8') as file:
         for data in kc_test_dataset:
             file.write(json.dumps(data) + '\n')
 
     nlgraph_train_queries = []
-    with open(f'.../output/gpt-3.5/NLGraph.jsonl', 'r', encoding='utf-8') as file:
+    with open(f'../output/gpt-3.5/NLGraph.jsonl', 'r', encoding='utf-8') as file:
         for line in file:
             data = json.loads(line.strip())
             nlgraph_train_queries.append(data['query'])
@@ -182,32 +182,34 @@ def sample_new_test_dataset():
     random.seed(42)
     random.shuffle(nlg_test_dataset)
 
-    with open(f'.../output/gpt-3.5/NLGraph_test.jsonl', 'w', encoding='utf-8') as file:
+    with open(f'../output/gpt-3.5/NLGraph_test.jsonl', 'w', encoding='utf-8') as file:
         for data in nlg_test_dataset:
             file.write(json.dumps(data) + '\n')
 
 
 def form_llama3_queries():
-    dataset_name_list = ['KC', 'COM2', 'NLGraph', 'NLGraph_shortest_path', 'ChessPuzzle']
+    dataset_name_list = ['BioGeneration']
     model_name_list = ['gpt-3.5', 'gpt-4', 'llama-3']
 
     for model_name in model_name_list:
         for dataset_name in dataset_name_list:
             dataset = load_dataset(dataset_name, model_name)
-            with open(f'.../instruction/evaluate_pairwise.txt', encoding='utf-8') as f:
+            with open(f'../instruction/evaluate_pairwise.txt', encoding='utf-8') as f:
                 instruction = ''.join(f.readlines())
             prompt_list = []
             evaluation_jsonl = []
             idx = 0
             for data in dataset.train_dataset:
-                responses = [r for r, e in zip(data['responses'], data['extracted answers']) if e is not None]
                 if dataset_name.find('NLGraph') >= 0:
+                    responses = [r for r, e in zip(data['responses'], data['extracted answers']) if e is not None]
                     label = [-abs(int(data['correct_answer']) - e) for e in data['extracted answers'] if e is not None]
                     is_correct = [l == 0 for l in label]
                 elif dataset_name == 'BioGeneration':
+                    responses = [r for r, fs in zip(data['responses'], data['factscore']) if fs is not None]
                     label = [fs for fs in data['factscore'] if fs is not None]
                     is_correct = [fs == 1.0 for fs in data['factscore'] if fs is not None]
                 else:
+                    responses = [r for r, e in zip(data['responses'], data['extracted answers']) if e is not None]
                     label = [c[e] for e, c in zip(data['extracted answers'], data['correctness']) if e is not None]
                     is_correct = [l == max(data['correctness'][0]) for l in label]
                 for i in range(len(responses)):
@@ -240,12 +242,12 @@ def form_llama3_queries():
             with open(f'../output/pairwise/{model_name}/llama-3/{dataset_name}.jsonl', 'w', encoding='utf-8') as file:
                 for data in evaluation_jsonl:
                     file.write(json.dumps(data) + '\n')
-            os.makedirs(f'.../output/remote/short', exist_ok=True)
+            os.makedirs(f'../output/remote/short', exist_ok=True)
             with open(f'../output/remote/short/pairwise_{model_name}_llama-3_{dataset_name}.jsonl', 'w', encoding='utf-8') as file:
                 for data in prompt_list:
                     file.write(json.dumps(data) + '\n')
 
-            with open(f'.../instruction/evaluate_reward_5.txt', encoding='utf-8') as f:
+            with open(f'../instruction/evaluate_reward_5.txt', encoding='utf-8') as f:
                 instruction = ''.join(f.readlines())
             batch_size = 5
             idx = 0
@@ -268,7 +270,7 @@ def form_llama3_queries():
                     })
                     idx += 1
             dataset.save_dataset()
-            os.makedirs(f'.../output/remote/long', exist_ok=True)
+            os.makedirs(f'../output/remote/long', exist_ok=True)
             with open(f'../output/remote/long/{model_name}_{dataset.output_name}.jsonl', 'w', encoding='utf-8') as file:
                 for data in prompt_list:
                     file.write(json.dumps(data) + '\n')

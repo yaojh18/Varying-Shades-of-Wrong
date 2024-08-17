@@ -38,18 +38,20 @@ class RawPreferenceDataset:
     output_name: str = ''
     split_ratio: float = 0.8
 
-    def __init__(self, dataset_name, model_name, dataset_sample_size=-1, response_sample_size=10, load_from_exist=False, load_test=False):
+    def __init__(self, dataset_name, model_name, dataset_sample_size=-1, response_sample_size=10, load_from_exist=False, load_test_path=None):
         random.seed(42)
         self.dataset = []
         self.dataset_sample_size = dataset_sample_size
         self.response_sample_size = response_sample_size
         self.dataset_name = dataset_name
         self.model_name = model_name
-        assert (self.output_name != '')
-        if load_from_exist and load_test and os.path.exists(f'../output/{self.model_name}/{self.output_name}_test.jsonl'):
+        self.load_test_path = load_test_path
+        if self.output_name == '':
+            self.output_name = self.dataset_name
+        if load_from_exist and load_test_path is not None and os.path.exists(load_test_path):
             self.train_dataset = []
             self.test_dataset = []
-            with open(f'../output/{self.model_name}/{self.output_name}_test.jsonl', 'r', encoding='utf-8') as file:
+            with open(load_test_path, 'r', encoding='utf-8') as file:
                 for line in file:
                     self.test_dataset.append(json.loads(line.strip()))
         elif load_from_exist and os.path.exists(f'../output/{self.model_name}/{self.output_name}.jsonl'):
@@ -63,11 +65,9 @@ class RawPreferenceDataset:
             self.precess_dataset(sample_size=self.dataset_sample_size)
             self.train_test_split()
 
-    @abstractmethod
     def load_dataset(self):
         pass
 
-    @abstractmethod
     def precess_dataset(self, sample_size):
         pass
 
@@ -105,7 +105,7 @@ class RawPreferenceDataset:
             raise NotImplementedError
         responses_name = 'responses' if key is None else key + '_responses'
         log_probs_name = 'factscore' if key is None else key + '_log_probs'
-        for i, data in enumerate(self.train_dataset):
+        for i, data in enumerate(self.train_dataset if split == 'train' else self.test_dataset):
             data[log_probs_name] = log_probs[i * self.response_sample_size: i * self.response_sample_size + self.response_sample_size]
             data[responses_name] = responses[i * self.response_sample_size: i * self.response_sample_size + self.response_sample_size]
 
@@ -115,16 +115,17 @@ class RawPreferenceDataset:
         with open(f'../instruction/{extract_instruction_name}.txt', encoding='utf-8') as f:
             extract_instruction = ''.join(f.readlines())
         queries = []
+        responses_name = 'responses' if key is None else key + '_responses'
         for data in self.train_dataset if split == 'train' else self.test_dataset:
             if 'choices' in data:
-                for choice, response in zip(data['choices'], data['responses']):
+                for choice, response in zip(data['choices'], data[responses_name]):
                     queries.append([
                         {'role': 'user', 'content': instruction + data['query'] + choice},
                         {'role': 'assistant', 'content': response},
                         {'role': 'user', 'content': extract_instruction}
                     ])
             else:
-                for response in data['responses']:
+                for response in data[responses_name]:
                     queries.append([
                         {'role': 'user', 'content': instruction + data['query']},
                         {'role': 'assistant', 'content': response},
@@ -146,7 +147,7 @@ class RawPreferenceDataset:
         else:
             raise NotImplementedError
         extracted_answers_name = 'extracted_answers' if key is None else key + '_extracted_answers'
-        for i, data in enumerate(self.train_dataset):
+        for i, data in enumerate(self.train_dataset if split == 'train' else self.test_dataset):
             data[extracted_answers_name] = responses[i * self.response_sample_size: i * self.response_sample_size + self.response_sample_size]
         clean_extracted_answers(
             dataset=self.train_dataset if split == 'train' else self.test_dataset,
@@ -162,9 +163,14 @@ class RawPreferenceDataset:
                 for data in self.train_dataset:
                     file.write(json.dumps(data) + '\n')
         if len(self.test_dataset) > 0:
-            with open(f'../output/{self.model_name}/{self.output_name}_test.jsonl', 'w', encoding='utf-8') as file:
-                for data in self.test_dataset:
-                    file.write(json.dumps(data) + '\n')
+            if self.load_test_path is not None:
+                with open(self.load_test_path, 'w', encoding='utf-8') as file:
+                    for data in self.test_dataset:
+                        file.write(json.dumps(data) + '\n')
+            else:
+                with open(f'../output/{self.model_name}/{self.output_name}_test.jsonl', 'w', encoding='utf-8') as file:
+                    for data in self.test_dataset:
+                        file.write(json.dumps(data) + '\n')
 
 
 def query_openai(prompt, index, model_name, mode):
@@ -260,7 +266,7 @@ def batch_query_open_sourced_llm(prompt_list, model_name, peft_dir=None, mode='g
             "return_dict_in_generate": True,
             "output_logits": True,
         }
-        batch_size = 5
+        batch_size = 2
     elif mode == 'evaluate':
         generate_kwargs = {
             "do_sample": False,
@@ -414,4 +420,4 @@ def clean_extracted_answers(dataset: list, key, pattern, map_into_index=True):
             else:
                 result = None
             new_extracted_answers.append(result)
-        data['extracted answers'] = new_extracted_answers
+        data[key] = new_extracted_answers

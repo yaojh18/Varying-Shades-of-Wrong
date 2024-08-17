@@ -14,7 +14,7 @@ class NLGraph(RawPreferenceDataset):
         elif kwargs['dataset_name'] == 'NLGraph_matching':
             self.extract_pattern = r'The maximum number of matches is (\d+)'
         else:
-            raise NotImplementedError('NLGraph is not support. You need to extract the number manually.')
+            self.extract_pattern = r'The final answer is (\d+)'
         self.map_into_index = False
         super().__init__(**kwargs)
 

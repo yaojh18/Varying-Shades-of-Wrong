@@ -1,0 +1,1 @@
+Please extract the final answer from your previous response. It should be an integer value representing the maximum / minimum value the question asked for. Start your answer with "The final answer is". However, if you don't give a final answer in your previous response, you should reply "None".

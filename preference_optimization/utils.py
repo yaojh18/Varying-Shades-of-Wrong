@@ -6,6 +6,6 @@ def get_extract_instruction_name(dataset_name):
     elif dataset_name == 'NLGraph_matching':
         return 'matching_extract'
     elif dataset_name == 'BioGeneration' or dataset_name == 'NLGraph':
-        raise NotImplementedError
+        return 'nlgraph_extract'
     else:
         return 'multi_choice_extract'

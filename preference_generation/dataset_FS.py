@@ -39,16 +39,23 @@ class BioGeneration(RawPreferenceDataset):
             factscore_name = 'factscore' if key is None else key + '_factscore'
 
             for data in tqdm(self.train_dataset if split == 'train' else self.test_dataset, desc='Generating FactScore'):
-                if 'factscore' not in data:
-                    with ProcessPoolExecutor(max_workers=2) as executor:
-                        futures = [executor.submit(self.get_factscore_for_single_response, index, fs, data['topic'], response)
-                                   for index, response in enumerate(data[responses_name])]
-                        factscore_dict = collections.defaultdict(str)
-                        for job in as_completed(futures):
-                            index, factscore = job.result(timeout=None)
-                            factscore_dict[index] = factscore
-                        data[factscore_name] = [factscore_dict[i] for i in range(len(data[responses_name]))]
-                        self.save_dataset()
+                if factscore_name not in data or None in data[factscore_name]:
+                    # with ProcessPoolExecutor(max_workers=1) as executor:
+                        # futures = [executor.submit(self.get_factscore_for_single_response, index, fs, data['topic'], response)
+                        #            for index, response in enumerate(data[responses_name])]
+                        # factscore_dict = collections.defaultdict(str)
+                        # for job in as_completed(futures):
+                        #     index, factscore = job.result(timeout=None)
+                        #     factscore_dict[index] = factscore
+                        # data[factscore_name] = [factscore_dict[i] for i in range(len(data[responses_name]))]
+                        # self.save_dataset()
+                    try:
+                        scores = fs.get_score([data['topic']] * self.response_sample_size, data[responses_name])['score']
+                    except Exception as e:
+                        print(e)
+                        scores = [None] * self.response_sample_size
+                    data[factscore_name] = scores
+                    self.save_dataset()
         else:
             raise NotImplementedError('This function must be run separately in Pytorch==1.13.1 environment.')
 
@@ -62,38 +69,23 @@ class BioGeneration(RawPreferenceDataset):
 
 
 if __name__ == '__main__':
-    # parser = argparse.ArgumentParser(description='Generate and save answers for BioGeneration dataset')
-    # parser.add_argument('--dataset_name', type=str, default='BioGeneration_test', help='Name of the dataset')
-    # parser.add_argument('--model_name', type=str, default='gpt-3.5', help='Name of the model')
-    # parser.add_argument('--instruction_name', type=str, default='default', help='Name of the instruction for generating answers')
-    # parser.add_argument('--dataset_sample_size', type=int, default=625, help='Dataset sample size')
-    # parser.add_argument('--response_sample_size', type=int, default=10, help='Response sample size')
-    # parser.add_argument('--load_from_exist', type=bool, default=True, help='Load from existing dataset or not')
-    #
-    # args = parser.parse_args()
-    #
-    # fs_dataset = BioGeneration(
-    #     dataset_name=args.dataset_name,
-    #     model_name=args.model_name,
-    #     dataset_sample_size=args.dataset_sample_size,
-    #     response_sample_size=args.response_sample_size,
-    #     load_from_exist=args.load_from_exist
-    # )
-    #
-    # fs_dataset.generate_answer(args.instruction_name)
-    # fs_dataset.save_dataset()
-    torch.multiprocessing.set_start_method('spawn')
+    parser = argparse.ArgumentParser(description='Generate and save answers for BioGeneration dataset')
+    parser.add_argument('--dataset_name', type=str, default='BioGeneration_test', help='Name of the dataset')
+    parser.add_argument('--model_name', type=str, default='gpt-3.5', help='Name of the model')
+    parser.add_argument('--instruction_name', type=str, default='default', help='Name of the instruction for generating answers')
+    parser.add_argument('--dataset_sample_size', type=int, default=625, help='Dataset sample size')
+    parser.add_argument('--response_sample_size', type=int, default=10, help='Response sample size')
+    parser.add_argument('--load_from_exist', type=bool, default=True, help='Load from existing dataset or not')
+
+    args = parser.parse_args()
 
     fs_dataset = BioGeneration(
-        dataset_name='BioGeneration',
-        model_name='llama-3',
-        load_from_exist=True
+        dataset_name=args.dataset_name,
+        model_name=args.model_name,
+        dataset_sample_size=args.dataset_sample_size,
+        response_sample_size=args.response_sample_size,
+        load_from_exist=args.load_from_exist
     )
-    fs_dataset.process_answer()
 
-    fs_dataset = BioGeneration(
-        dataset_name='BioGeneration',
-        model_name='gpt-4',
-        load_from_exist=True
-    )
-    fs_dataset.process_answer()
+    fs_dataset.generate_answer(args.instruction_name)
+    fs_dataset.save_dataset()

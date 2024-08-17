@@ -11,6 +11,7 @@ import os
 import json
 import re
 import torch
+import random
 from tqdm import tqdm
 from math import floor
 from collections import Counter
@@ -79,49 +80,49 @@ def calculate_accuracy_score(predictions, labels, is_corrects=None, top_p=1.0, d
                 print(f'Accuracy for {j} over {i} is: {(detailed_accurate_count[i][j] + detailed_accurate_count[j][i]) / (detailed_all_count[i][j] + detailed_all_count[j][i] + 1e-8): .3f}')
 
 
-def load_dataset(dataset_name, model_name, load_test=False):
+def load_dataset(dataset_name, model_name, load_test_path=None):
     if dataset_name.find('MC') >= 0 or dataset_name == 'KC':
         dataset = KnowledgeCrosswords(
             dataset_name=dataset_name,
             model_name=model_name,
             knowledge=False,
             load_from_exist=True,
-            load_test=load_test
+            load_test_path=load_test_path
         )
     elif dataset_name.find('NLGraph') >= 0:
         dataset = NLGraph(
             dataset_name=dataset_name,
             model_name=model_name,
             load_from_exist=True,
-            load_test=load_test
+            load_test_path=load_test_path
         )
     elif dataset_name == 'BioGeneration':
         dataset = BioGeneration(
             dataset_name=dataset_name,
             model_name=model_name,
             load_from_exist=True,
-            load_test=load_test
+            load_test_path=load_test_path
         )
     elif dataset_name == 'MMLUPro':
         dataset = MMLUPro(
             dataset_name=dataset_name,
             model_name=model_name,
             load_from_exist=True,
-            load_test=load_test
+            load_test_path=load_test_path
         )
     elif dataset_name == 'COM2':
         dataset = COM2(
             dataset_name=dataset_name,
             model_name=model_name,
             load_from_exist=True,
-            load_test=load_test
+            load_test_path=load_test_path
         )
     elif dataset_name == 'ChessPuzzle':
         dataset = ChessPuzzle(
             dataset_name=dataset_name,
             model_name=model_name,
             load_from_exist=True,
-            load_test=load_test
+            load_test_path=load_test_path
         )
     else:
         raise NotImplementedError
@@ -136,7 +137,7 @@ def calculate_task_accuracy_and_wow_number(dataset_name, model_name):
             is_corrects += [int(data['correct_answer']) == e for e in data['extracted answers'] if e is not None]
     elif dataset_name == 'BioGeneration':
         for data in dataset.train_dataset:
-            is_corrects += [fs == 1.0 for fs in data['factscore'] if fs is not None]
+            is_corrects += [fs >= 0.9 for fs in data['factscore'] if fs is not None]
     else:
         for data in dataset.train_dataset:
             correct_answer = max(data['correctness'][0])
@@ -177,7 +178,7 @@ def calculate_accuracy_from_response(dataset_name, model_name, top_p=1.0):
             consistencies.append([-l for fs, l in zip(data['factscore'], data['log_probs']) if fs is not None])
             lengths.append([len(tokenizer(r)['input_ids']) for fs, r in zip(data['factscore'], data['responses']) if fs is not None])
             labels.append([fs for fs in data['factscore'] if fs is not None])
-            is_corrects.append([fs == 1.0 for fs in data['factscore'] if fs is not None])
+            is_corrects.append([fs >= 0.9 for fs in data['factscore'] if fs is not None])
     else:
         for data in dataset.train_dataset:
             log_probs.append([-l for e, l in zip(data['extracted answers'], data['log_probs']) if e is not None])
@@ -198,6 +199,7 @@ def calculate_accuracy_from_response(dataset_name, model_name, top_p=1.0):
     calculate_accuracy_score(lengths, labels, is_corrects=is_corrects, top_p=1.0)
     calculate_accuracy_score(lengths, labels, is_corrects=is_corrects, top_p=0.5)
     calculate_accuracy_score(lengths, labels, is_corrects=is_corrects, top_p=0.1)
+    del tokenizer
 
 
 def calculate_accuracy_ask_llm_pairwise(
@@ -215,19 +217,21 @@ def calculate_accuracy_ask_llm_pairwise(
                 evaluation_jsonl.append(json.loads(line.strip()))
     else:
         dataset = load_dataset(dataset_name, model_name)
-        with open(f'instruction/{evaluate_instruction_name}.txt', encoding='utf-8') as f:
+        with open(f'../instruction/{evaluate_instruction_name}.txt', encoding='utf-8') as f:
             instruction = ''.join(f.readlines())
         prompt_list = []
         evaluation_jsonl = []
         for data in dataset.train_dataset:
-            responses = [r for r, e in zip(data['responses'], data['extracted answers']) if e is not None]
             if dataset_name.find('NLGraph') >= 0:
+                responses = [r for r, e in zip(data['responses'], data['extracted answers']) if e is not None]
                 label = [-abs(int(data['correct_answer']) - e) for e in data['extracted answers'] if e is not None]
                 is_correct = [l == 0 for l in label]
             elif dataset_name == 'BioGeneration':
+                responses = [r for r, fs in zip(data['responses'], data['factscore']) if fs is not None]
                 label = [fs for fs in data['factscore'] if fs is not None]
-                is_correct = [fs == 1.0 for fs in data['factscore'] if fs is not None]
+                is_correct = [fs >= 0.9 for fs in data['factscore'] if fs is not None]
             else:
+                responses = [r for r, e in zip(data['responses'], data['extracted answers']) if e is not None]
                 label = [c[e] for e, c in zip(data['extracted answers'], data['correctness']) if e is not None]
                 is_correct = [l == max(data['correctness'][0]) for l in label]
             for i in range(len(responses)):
@@ -247,6 +251,12 @@ def calculate_accuracy_ask_llm_pairwise(
                             'role': 'user',
                             'content': instruction.format(query, responses[i], responses[j])
                         }])
+        if evaluate_model_name == 'gpt-4' and len(evaluation_jsonl) > 10000:
+            random.seed(42)
+            sampled_idxs = random.sample(range(len(evaluation_jsonl)), 10000)
+            sampled_idxs = sorted(sampled_idxs)
+            evaluation_jsonl = [evaluation_jsonl[idx] for idx in sampled_idxs]
+            prompt_list = [prompt_list[idx] for idx in sampled_idxs]
         if evaluate_model_name == 'gpt-4':
             lt_pairs, evaluations = batch_query_openai(prompt_list, model_name='gpt-4o', mode='evaluate')
         elif evaluate_model_name == 'gpt-3.5':
@@ -269,7 +279,7 @@ def calculate_accuracy_ask_llm_pairwise(
             for data in evaluation_jsonl:
                 file.write(json.dumps(data) + '\n')
     if filtered and not (load_from_exist and 'reversed_evaluation' in evaluation_jsonl[0]):
-        with open(f'instruction/{evaluate_instruction_name}.txt', encoding='utf-8') as f:
+        with open(f'../instruction/{evaluate_instruction_name}.txt', encoding='utf-8') as f:
             instruction = ''.join(f.readlines())
         prompt_list = []
         for eval_json in evaluation_jsonl:
@@ -328,7 +338,7 @@ def calculate_accuracy_ask_llm_score(
     dataset = load_dataset(dataset_name, model_name)
     if not (load_from_exist and reward_name in dataset.train_dataset[0]):
         _, _, batch_size = reward_name.split('_')
-        with open(f'instruction/evaluate_reward_{batch_size}.txt', encoding='utf-8') as f:
+        with open(f'../instruction/evaluate_reward_{batch_size}.txt', encoding='utf-8') as f:
             instruction = ''.join(f.readlines())
         batch_size = int(batch_size)
         prompt_list = []
@@ -381,7 +391,7 @@ def calculate_accuracy_ask_llm_score(
         for data in dataset.train_dataset:
             rewards.append([r for fs, r in zip(data['factscore'], data[reward_name]) if fs is not None and r is not None])
             labels.append([fs for fs in data['factscore'] if fs is not None])
-            is_corrects.append([fs == 1.0 for fs in data['factscore'] if fs is not None])
+            is_corrects.append([fs >= 0.9 for fs in data['factscore'] if fs is not None])
     else:
         for data in dataset.train_dataset:
             rewards.append([r for e, r in zip(data['extracted answers'], data[reward_name]) if e is not None and r is not None])
@@ -431,7 +441,7 @@ def calculate_nll(dataset_name, model_name, eval_model_name='llama-3', load_from
         for data in dataset.train_dataset:
             log_probs.append([-l for fs, l in zip(data['factscore'], data[eval_model_name + '_log_probs']) if fs is not None])
             labels.append([fs for fs in data['factscore'] if fs is not None])
-            is_corrects.append([fs == 1.0 for fs in data['factscore'] if fs is not None])
+            is_corrects.append([fs >= 0.9 for fs in data['factscore'] if fs is not None])
     else:
         for data in dataset.train_dataset:
             log_probs.append([-l for e, l in zip(data['extracted answers'], data[eval_model_name + '_log_probs']) if e is not None])
@@ -445,20 +455,4 @@ def calculate_nll(dataset_name, model_name, eval_model_name='llama-3', load_from
 
 
 if __name__ == '__main__':
-    calculate_accuracy_ask_llm_pairwise('KC', 'gpt-3.5', 'evaluate_pairwise', 'llama-3', False, True)
-    calculate_accuracy_ask_llm_pairwise('COM2', 'gpt-3.5', 'evaluate_pairwise', 'llama-3', False, True)
-    calculate_accuracy_ask_llm_pairwise('NLGraph_shortest_path', 'gpt-3.5', 'evaluate_pairwise', 'llama-3', False, True)
-    calculate_accuracy_ask_llm_pairwise('NLGraph', 'gpt-3.5', 'evaluate_pairwise', 'llama-3', False, True)
-    calculate_accuracy_ask_llm_pairwise('ChessPuzzle', 'gpt-3.5', 'evaluate_pairwise', 'llama-3', False, True)
-
-    calculate_accuracy_ask_llm_pairwise('KC', 'llama-3', 'evaluate_pairwise', 'llama-3', False, True)
-    calculate_accuracy_ask_llm_pairwise('COM2', 'llama-3', 'evaluate_pairwise', 'llama-3', False, True)
-    calculate_accuracy_ask_llm_pairwise('NLGraph_shortest_path', 'llama-3', 'evaluate_pairwise', 'llama-3', False, True)
-    calculate_accuracy_ask_llm_pairwise('NLGraph', 'llama-3', 'evaluate_pairwise', 'llama-3', False, True)
-    calculate_accuracy_ask_llm_pairwise('ChessPuzzle', 'llama-3', 'evaluate_pairwise', 'llama-3', False, True)
-
-    calculate_accuracy_ask_llm_pairwise('KC', 'gpt-4', 'evaluate_pairwise', 'llama-3', False, True)
-    calculate_accuracy_ask_llm_pairwise('COM2', 'gpt-4', 'evaluate_pairwise', 'llama-3', False, True)
-    calculate_accuracy_ask_llm_pairwise('NLGraph_shortest_path', 'gpt-4', 'evaluate_pairwise', 'llama-3', False, True)
-    calculate_accuracy_ask_llm_pairwise('NLGraph', 'gpt-4', 'evaluate_pairwise', 'llama-3', False, True)
-    calculate_accuracy_ask_llm_pairwise('ChessPuzzle', 'gpt-4', 'evaluate_pairwise', 'llama-3', False, True)
+    pass
