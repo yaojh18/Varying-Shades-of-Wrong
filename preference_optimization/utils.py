@@ -1,3 +1,11 @@
+dataset_name_translator = {
+    'KnowledgeCrosswords': 'KC',
+    'BioGeneration': 'BioGeneration',
+    'CommonSense': 'COM2',
+    'NLGraph_SP': 'NLGraph_shortest_path'
+}
+
+
 def get_extract_instruction_name(dataset_name):
     if dataset_name == 'NLGraph_shortest_path':
         return 'shortest_path_extract'

@@ -14,6 +14,7 @@ from huggingface_hub import login
 from unsloth import FastLanguageModel
 
 from preference_generation.metric import load_dataset
+from preference_optimization.utils import *
 
 
 class PreferenceDatasetCollector:
@@ -75,10 +76,10 @@ class DirectCompareDatasetCollector(PreferenceDatasetCollector):
 
     def filter_train_dataset(self):
         for model_name in self.model_name_list:
-            if not os.path.exists(f'../output/pairwise/{model_name}/{self.eval_model_name}/{self.dataset_name}.jsonl'):
+            if not os.path.exists(f'../output/pairwise/{model_name}/{self.eval_model_name}/{dataset_name_translator[self.dataset_name]}.jsonl'):
                 raise FileNotFoundError(
-                    f'../output/pairwise/{model_name}/{self.eval_model_name}/{self.dataset_name}.jsonl')
-            with open(f'../output/pairwise/{model_name}/{self.eval_model_name}/{self.dataset_name}.jsonl', 'r',
+                    f'../output/pairwise/{model_name}/{self.eval_model_name}/{dataset_name_translator[self.dataset_name]}.jsonl')
+            with open(f'../output/pairwise/{model_name}/{self.eval_model_name}/{dataset_name_translator[self.dataset_name]}.jsonl', 'r',
                       encoding='utf-8') as file:
                 for line in file:
                     data = json.loads(line.strip())
@@ -117,13 +118,14 @@ class ScoreCompareDatasetCollector(PreferenceDatasetCollector):
     def filter_train_dataset(self):
         reward_name = self.eval_model_name + '_' + self.reward_name
         for model_name in self.model_name_list:
-            dataset = load_dataset(self.dataset_name, model_name)
+            dataset = load_dataset(dataset_name_translator[self.dataset_name], model_name)
             unfiltered_train_dataset = []
             for data in dataset.train_dataset:
                 for i in range(len(data['responses'])):
                     for j in range(i + 1, len(data['responses'])):
                         if data[reward_name][i] is not None and data[reward_name][j] is not None and \
-                                data['extracted answers'][i] is not None and data['extracted answers'][j] is not None:
+                                (('extracted answers' in data and data['extracted answers'][i] is not None and data['extracted answers'][j] is not None) or
+                                 ('factscore' in data and data['factscore'][i] is not None and data['factscore'][j] is not None)):
                             if not self.is_correct(i, data) and not self.is_correct(j, data) and not self.is_same_label(i, j, data):
                                 if data[reward_name][i] > data[reward_name][j]:
                                     unfiltered_train_dataset.append({
@@ -154,11 +156,12 @@ class OracleDatasetCollector(PreferenceDatasetCollector):
 
     def filter_train_dataset(self):
         for model_name in self.model_name_list:
-            dataset = load_dataset(self.dataset_name, model_name)
+            dataset = load_dataset(dataset_name_translator[self.dataset_name], model_name)
             for data in dataset.train_dataset:
                 for i in range(len(data['responses'])):
                     for j in range(i + 1, len(data['responses'])):
-                        if data['extracted answers'][i] is not None and data['extracted answers'][j] is not None:
+                        if ('extracted answers' in data and data['extracted answers'][i] is not None and data['extracted answers'][j] is not None) or \
+                                ('factscore' in data and data['factscore'][i] is not None and data['factscore'][j] is not None):
                             if not self.is_correct(i, data) and not self.is_correct(j, data) and not self.is_same_label(i, j, data):
                                 if self.get_correctness(i, data) > self.get_correctness(j, data):
                                     self.train_dataset_dict['prompt'].append(data['query'])

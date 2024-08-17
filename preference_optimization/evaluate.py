@@ -1,7 +1,7 @@
 import json
 import os
 
-from preference_generation.utils import RawPreferenceDataset
+from preference_generation.metric import load_dataset
 from preference_optimization.utils import *
 
 import argparse
@@ -28,10 +28,9 @@ def evaluate(
     elif preference_type == 'score':
         preference_name += '_' + str(top_p) + '_' + eval_model_name
     preference_name += '_' + trainer_name
-    dataset = RawPreferenceDataset(
-        dataset_name,
+    dataset = load_dataset(
+        dataset_name_translator[dataset_name],
         'llama-3',
-        load_from_exist=True,
         load_test_path=f'../output2/{dataset_name}/response/{eval_source}.jsonl'
     )
 
@@ -42,7 +41,6 @@ def evaluate(
     if not (load_from_exist and f'{preference_name}_responses' in dataset.test_dataset[0]):
         dataset.generate_answer('CoT', 'test', preference_name)
         dataset.save_dataset()
-
     if dataset_name != 'BioGeneration':
         # process responses
         eval_instruction_name = get_extract_instruction_name(dataset_name)
@@ -58,14 +56,14 @@ def evaluate(
         if not os.path.exists(f'../output2/{dataset_name}/metric/{eval_source}.jsonl'):
             with open(f'../output2/{dataset_name}/metric/{eval_source}.jsonl', 'w', encoding='utf-8') as file:
                 json.dump({}, file)
-        with open(f'../output2/{dataset_name}/metric/{eval_source}.jsonl', 'a', encoding='utf-8') as file:
+        with open(f'../output2/{dataset_name}/metric/{eval_source}.jsonl', 'r', encoding='utf-8') as file:
             metrics = json.load(file)
             metrics['ori_correctness'] = ori_correctness
             metrics['ori_accuracy'] = ori_accuracy
             metrics['ori_ece'] = ori_ece
             metrics[f'{preference_name}_correctness'] = new_correctness
-            metrics[f'{preference_name}_correctness'] = new_correctness
-            metrics[f'{preference_name}_correctness'] = new_correctness
+            metrics[f'{preference_name}_accuracy'] = new_accuracy
+            metrics[f'{preference_name}_ece'] = new_ece
         with open(f'../output2/{dataset_name}/metric/{eval_source}.jsonl', 'w', encoding='utf-8') as file:
             json.dump(metrics, file)
 

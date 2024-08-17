@@ -266,7 +266,7 @@ def batch_query_open_sourced_llm(prompt_list, model_name, peft_dir=None, mode='g
             "return_dict_in_generate": True,
             "output_logits": True,
         }
-        batch_size = 2
+        batch_size = 10
     elif mode == 'evaluate':
         generate_kwargs = {
             "do_sample": False,
@@ -276,7 +276,7 @@ def batch_query_open_sourced_llm(prompt_list, model_name, peft_dir=None, mode='g
             "pad_token_id": tokenizer.eos_token_id,
             "eos_token_id": tokenizer.eos_token_id,
         }
-        batch_size = 1
+        batch_size = 10
     else:
         generate_kwargs = {
             "do_sample": False,
@@ -286,7 +286,7 @@ def batch_query_open_sourced_llm(prompt_list, model_name, peft_dir=None, mode='g
             "pad_token_id": tokenizer.eos_token_id,
             "eos_token_id": tokenizer.eos_token_id,
         }
-        batch_size = 1
+        batch_size = 10
     # Get the log probabilities from the model_name
     log_probs = []
     responses = []

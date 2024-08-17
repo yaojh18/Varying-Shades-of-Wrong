@@ -1,11 +1,11 @@
 # python==3.10
 accelerate==0.33.0
+bitsandbytes==0.43.3
 huggingface-hub==0.24.5
 openai==1.40.3
 pandas==2.2.2
 peft==0.12.0
-python-chess==1.999
-torch==2.3.0
+chess==1.10.0
 transformers==4.44.0
 triton==2.3.0
 trl==0.8.6

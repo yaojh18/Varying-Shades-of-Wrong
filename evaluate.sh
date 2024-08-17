@@ -1,35 +1,20 @@
 export PYTHONPATH=$PYTHONPATH:$(pwd)
 cd preference_optimization || exit
-python3 evaluate.py --dataset_name KnowledgeCrosswords --preference_source all --preference_type oracle
-python3 evaluate.py --dataset_name BioGeneration --preference_source all --preference_type oracle
-python3 evaluate.py --dataset_name CommonSense --preference_source all --preference_type oracle
-python3 evaluate.py --dataset_name NLGraph_SP --preference_source all --preference_type oracle
-python3 evaluate.py --dataset_name KnowledgeCrosswords --preference_source all --preference_type direct
-python3 evaluate.py --dataset_name BioGeneration --preference_source all --preference_type direct
-python3 evaluate.py --dataset_name CommonSense --preference_source all --preference_type direct
-python3 evaluate.py --dataset_name NLGraph_SP --preference_source all --preference_type direct
-python3 evaluate.py --dataset_name KnowledgeCrosswords --preference_source all --preference_type score --top_p 0.5
-python3 evaluate.py --dataset_name BioGeneration --preference_source all --preference_type score --top_p 0.5
-python3 evaluate.py --dataset_name CommonSense --preference_source all --preference_type score --top_p 0.5
-python3 evaluate.py --dataset_name NLGraph_SP --preference_source all --preference_type score --top_p 0.5
-python3 evaluate.py --dataset_name KnowledgeCrosswords --preference_source all --preference_type score --top_p 0.1
-python3 evaluate.py --dataset_name BioGeneration --preference_source all --preference_type score --top_p 0.1
-python3 evaluate.py --dataset_name CommonSense --preference_source all --preference_type score --top_p 0.1
-python3 evaluate.py --dataset_name NLGraph_SP --preference_source all --preference_type score --top_p 0.1
-python3 evaluate.py --dataset_name KnowledgeCrosswords --preference_source self --preference_type oracle
-python3 evaluate.py --dataset_name BioGeneration --preference_source self --preference_type oracle
-python3 evaluate.py --dataset_name CommonSense --preference_source self --preference_type oracle
-python3 evaluate.py --dataset_name NLGraph_SP --preference_source self --preference_type oracle
-python3 evaluate.py --dataset_name KnowledgeCrosswords --preference_source self --preference_type direct
-python3 evaluate.py --dataset_name BioGeneration --preference_source self --preference_type direct
-python3 evaluate.py --dataset_name CommonSense --preference_source self --preference_type direct
-python3 evaluate.py --dataset_name NLGraph_SP --preference_source self --preference_type direct
-python3 evaluate.py --dataset_name KnowledgeCrosswords --preference_source self --preference_type score --top_p 0.5
-python3 evaluate.py --dataset_name BioGeneration --preference_source self --preference_type score --top_p 0.5
-python3 evaluate.py --dataset_name CommonSense --preference_source self --preference_type score --top_p 0.5
-python3 evaluate.py --dataset_name NLGraph_SP --preference_source self --preference_type score --top_p 0.5
-python3 evaluate.py --dataset_name KnowledgeCrosswords --preference_source self --preference_type score --top_p 0.1
-python3 evaluate.py --dataset_name BioGeneration --preference_source self --preference_type score --top_p 0.1
-python3 evaluate.py --dataset_name CommonSense --preference_source self --preference_type score --top_p 0.1
-python3 evaluate.py --dataset_name NLGraph_SP --preference_source self --preference_type score --top_p 0.1
+datasets=("KnowledgeCrosswords" "BioGeneration" "CommonSense" "NLGraph_SP")
+preference_sources=("all" "self")
+preference_types=("oracle" "direct" "score")
+top_p_values=("0.5" "0.1")
+for dataset in "${datasets[@]}"; do
+  for source in "${preference_sources[@]}"; do
+    for type in "${preference_types[@]}"; do
+      if [ "$type" == "score" ]; then
+        for top_p in "${top_p_values[@]}"; do
+          python3 evaluate.py --dataset_name "$dataset" --preference_source "$source" --preference_type "$type" --top_p "$top_p"
+        done
+      else
+        python3 evaluate.py --dataset_name "$dataset" --preference_source "$source" --preference_type "$type"
+      fi
+    done
+  done
+done
 
