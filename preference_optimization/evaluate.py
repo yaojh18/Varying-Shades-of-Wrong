@@ -29,8 +29,8 @@ def evaluate(
         preference_name += '_' + str(top_p) + '_' + eval_model_name
     preference_name += '_' + trainer_name
     dataset = load_dataset(
-        dataset_name_translator[dataset_name],
-        'llama-3',
+        dataset_name,
+        '',
         load_test_path=f'../output2/{dataset_name}/response/{eval_source}.jsonl'
     )
 

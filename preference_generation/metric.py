@@ -81,7 +81,7 @@ def calculate_accuracy_score(predictions, labels, is_corrects=None, top_p=1.0, d
 
 
 def load_dataset(dataset_name, model_name, load_test_path=None):
-    if dataset_name.find('MC') >= 0 or dataset_name == 'KC':
+    if dataset_name.find('MC') >= 0 or dataset_name == 'KC' or dataset_name == 'KnowledgeCrosswords':
         dataset = KnowledgeCrosswords(
             dataset_name=dataset_name,
             model_name=model_name,
@@ -110,7 +110,7 @@ def load_dataset(dataset_name, model_name, load_test_path=None):
             load_from_exist=True,
             load_test_path=load_test_path
         )
-    elif dataset_name == 'COM2':
+    elif dataset_name == 'COM2' or dataset_name == 'CommonSense':
         dataset = COM2(
             dataset_name=dataset_name,
             model_name=model_name,

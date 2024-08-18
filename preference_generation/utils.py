@@ -9,11 +9,9 @@ import re
 import torch.nn.functional as F
 from torch.utils.data import random_split
 from tqdm import tqdm
-from abc import abstractmethod
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from transformers import AutoTokenizer, AutoModelForCausalLM, T5EncoderModel
+from transformers import AutoTokenizer, AutoModelForCausalLM, T5EncoderModel, BitsAndBytesConfig
 from peft import PeftModel
-from huggingface_hub import login
 
 
 OPENAI_KEY = 'sk-proj-BJiODPrgTGI8keUENjdmT3BlbkFJCAQOWpDkd50EHnvp2ILL'
@@ -99,7 +97,7 @@ class RawPreferenceDataset:
             log_probs, responses = batch_query_open_sourced_llm(
                 queries,
                 model_name='meta-llama/Meta-Llama-3-8B-Instruct',
-                peft_dir=f'../output/model/{self.dataset_name}/{key}/'
+                peft_dir=f'../output2/{self.dataset_name}/model/{key}/'
             )
         else:
             raise NotImplementedError
@@ -141,7 +139,7 @@ class RawPreferenceDataset:
             log_probs, responses = batch_query_open_sourced_llm(
                 queries,
                 model_name='meta-llama/Meta-Llama-3-8B-Instruct',
-                peft_dir=f'../output/model/{self.dataset_name}/{key}/',
+                peft_dir=f'../output2/{self.dataset_name}/model/{key}/',
                 mode='extract'
             )
         else:
@@ -241,16 +239,24 @@ def batch_query_open_sourced_llm(prompt_list, model_name, peft_dir=None, mode='g
     :param prompt_list:
     :return:
     """
-    login(token='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')
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name,
-        device_map='auto',
-        torch_dtype=torch.bfloat16,
-    )
-    if peft_dir is not None:
-        model = PeftModel.from_pretrained(model, peft_dir, torch_dtype=torch.bfloat16)
+    if peft_dir is None:
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name,
+            device_map='auto',
+            torch_dtype=torch.bfloat16,
+            token='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'
+        )
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+    else:
+        model = AutoModelForCausalLM.from_pretrained(
+            peft_dir,
+            device_map='auto',
+            torch_dtype=torch.bfloat16,
+            token='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',
+        )
+        model = PeftModel.from_pretrained(model, peft_dir)
+        tokenizer = AutoTokenizer.from_pretrained(peft_dir)
     model.eval()
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = 'left'
 
