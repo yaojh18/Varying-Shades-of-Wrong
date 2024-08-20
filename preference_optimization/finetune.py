@@ -71,7 +71,7 @@ class DirectCompareDatasetCollector(PreferenceDatasetCollector):
     def __init__(self, eval_model_name='gpt-4', filtered=True, **kwargs):
         self.eval_model_name = eval_model_name
         self.filtered = filtered
-        self.output_name = 'direct' + ('_filtered' if filtered else '_') + eval_model_name
+        self.output_name = 'direct' + ('_filtered_' if filtered else '_') + eval_model_name
         super().__init__(**kwargs)
 
     def filter_train_dataset(self):

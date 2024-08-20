@@ -131,7 +131,7 @@ if __name__ == '__main__':
     parser.add_argument('--top_p', type=float, default=0.5, help='Top-p value: 0.5, 0.1')
     parser.add_argument('--filtered', type=bool, default=True,
                         help='Boolean flag to indicate if filtering is applied: True')
-    parser.add_argument('--load_from_exist', type=bool, default=True)
+    parser.add_argument('--load_from_exist', type=bool, default=False)
 
     args = parser.parse_args()
 
