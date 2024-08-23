@@ -262,7 +262,7 @@ def calculate_accuracy_ask_llm_pairwise(
         elif evaluate_model_name == 'gpt-3.5':
             lt_pairs, evaluations = batch_query_openai(prompt_list, model_name='gpt-3.5-turbo', mode='evaluate')
         elif evaluate_model_name == 'llama-3':
-            lt_pairs, evaluations = batch_query_open_sourced_llm(prompt_list, model_name='meta-llama/Meta-Llama-3-8B-Instruct', mode='evaluate')
+            lt_pairs, evaluations = batch_query_open_sourced_llm(prompt_list, model_name='meta-llama/Meta-Llama-3-8B-Instruct', mode='evaluate_256')
         else:
             raise NotImplementedError
         pattern = re.compile(r'Preferred output: (\d+)')
@@ -292,7 +292,7 @@ def calculate_accuracy_ask_llm_pairwise(
         elif evaluate_model_name == 'gpt-3.5':
             _, evaluations = batch_query_openai(prompt_list, model_name='gpt-3.5-turbo', mode='evaluate')
         elif evaluate_model_name == 'llama-3':
-            _, evaluations = batch_query_open_sourced_llm(prompt_list, model_name='meta-llama/Meta-Llama-3-8B-Instruct', mode='evaluate')
+            _, evaluations = batch_query_open_sourced_llm(prompt_list, model_name='meta-llama/Meta-Llama-3-8B-Instruct', mode='evaluate_256')
         else:
             raise NotImplementedError
         pattern = re.compile(r'Preferred output: (\d+)')
@@ -360,7 +360,7 @@ def calculate_accuracy_ask_llm_score(
         elif evaluate_model_name == 'gpt-3.5':
             _, evaluations = batch_query_openai(prompt_list, model_name='gpt-3.5-turbo', mode='evaluate')
         elif evaluate_model_name == 'llama-3':
-            _, evaluations = batch_query_open_sourced_llm(prompt_list, model_name='meta-llama/Meta-Llama-3-8B-Instruct', mode='evaluate')
+            _, evaluations = batch_query_open_sourced_llm(prompt_list, model_name='meta-llama/Meta-Llama-3-8B-Instruct', mode='evaluate_1024')
         else:
             raise NotImplementedError
         pattern = re.compile(r"Score: (\d+)")

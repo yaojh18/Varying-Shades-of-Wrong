@@ -4,6 +4,7 @@ import random
 
 import torch
 import argparse
+from datetime import datetime
 from abc import abstractmethod
 from datasets import Dataset
 from trl import DPOTrainer
@@ -181,7 +182,13 @@ def preference_optimization(
         trainer_name,
         top_p=0.5,
         filtered=True,
-        load_from_exist=True
+        load_from_exist=True,
+        learning_rate=5e-5,
+        lr_scheduler_type='linear_with_warmup',
+        weight_decay=1e-5,
+        num_train_epochs=3,
+        beta=0.1,
+        warmup_ratio=0.1
 ):
     if preference_type == 'direct':
         dataset_collector = DirectCompareDatasetCollector(
@@ -204,8 +211,16 @@ def preference_optimization(
         )
     else:
         raise NotImplementedError
-    if load_from_exist and os.path.exists(f'../output2/{dataset_name}/model/{preference_source}_{dataset_collector.output_name}_{trainer_name}/adapter_model.safetensors'):
-        return
+    grid_search_name = f"lr={learning_rate:.1e}_scheduler={lr_scheduler_type}_decay={weight_decay:.1e}_epochs={num_train_epochs}_beta={beta:.1e}_warmup={warmup_ratio:.1e}_timestamp={datetime.now().strftime('%Y%m%d-%H%M%S')}"
+    output_name = f"{preference_source}_{dataset_collector.output_name}_{trainer_name}"
+    if load_from_exist:
+        parent_path = f'../output2/{dataset_name}/model/{output_name}/'
+        grid_search_subdirs = [name for name in os.listdir(parent_path) if os.path.isdir(os.path.join(parent_path, name))]
+        for subdir in grid_search_subdirs:
+            if subdir.find(grid_search_name.split('_timestamp=')[0]) >= 0 \
+                    and os.path.exists(os.path.join(parent_path, subdir, 'log.json')) \
+                    and os.path.exists(os.path.join(parent_path, subdir, 'adapter_model.safetensors')):
+                return
     dataset = dataset_collector.get_dataset()
     random.seed(42)
     select_idxs = random.sample(range(len(dataset)), min(4000, len(dataset)))
@@ -263,7 +278,11 @@ def preference_optimization(
     )
 
     def format_chat_template(row):
-        row['prompt'] = tokenizer.apply_chat_template([{'role': 'user', 'content': row['prompt']}], tokenize=False, add_generation_prompt=True)
+        row['prompt'] = tokenizer.apply_chat_template(
+            [{'role': 'user', 'content': row['prompt']}],
+            tokenize=False,
+            add_generation_prompt=True
+        )
         row['chosen'] = row['chosen'] + "<|eot_id|>\n"
         row['rejected'] = row['rejected'] + "<|eot_id|>\n"
         return row
@@ -273,7 +292,6 @@ def preference_optimization(
     training_args = TrainingArguments(
         gradient_accumulation_steps=1,
         per_device_train_batch_size=1,
-        num_train_epochs=3,
         # do_eval=False,
         do_eval=True,
         per_device_eval_batch_size=1,
@@ -281,17 +299,25 @@ def preference_optimization(
         eval_steps=1000,
         save_strategy='steps',
         save_steps=1000,
+        logging_strategy='steps',
+        logging_steps=200,
         metric_for_best_model="eval_loss",
         greater_is_better=False,
         save_total_limit=3,
         load_best_model_at_end=True,
         fp16=not torch.cuda.is_bf16_supported(),
         bf16=torch.cuda.is_bf16_supported(),
-        output_dir=f'../output2/{dataset_name}/model/{preference_source}_{dataset_collector.output_name}_{trainer_name}/',
+        output_dir=f'../output2/{dataset_name}/model/{output_name}/{grid_search_name}/',
+        learning_rate=learning_rate,
+        lr_scheduler_type=lr_scheduler_type,
+        weight_decay=weight_decay,
+        num_train_epochs=num_train_epochs,
+        warmup_ratio=warmup_ratio,
     )
     if trainer_name == 'dpo':
         trainer = DPOTrainer(
             model,
+            beta=beta,
             args=training_args,
             max_length=1536,
             max_prompt_length=512,
@@ -306,28 +332,79 @@ def preference_optimization(
     trainer.train()
     trainer.save_model()
 
+    # Save anything you are interested about los here.
+    train_losses = []
+    val_losses = []
+    for log in trainer.state.log_history:
+        if 'loss' in log:
+            train_losses.append(log['loss'])
+        if 'eval_loss' in log:
+            val_losses.append(log['eval_loss'])
+    out_json = {
+        'loss': train_losses,
+        'val_loss': val_losses,
+        'best_val_loss': min(val_losses)
+    }
+    with open(f'../output2/{dataset_name}/model/{output_name}/{grid_search_name}/log.json', 'w', encoding='utf-8') as file:
+        json.dump(out_json, file)
+    torch.cuda.empty_cache()
+
+
+def grid_search(
+        learning_rate_range,
+        lr_scheduler_type_range,
+        weight_decay_range,
+        num_train_epochs_range,
+        beta_range,
+        warmup_ratio_range,
+        **kwargs
+):
+    for learning_rate in learning_rate_range:
+        for lr_scheduler_type in lr_scheduler_type_range:
+            for weight_decay in weight_decay_range:
+                for num_train_epochs in num_train_epochs_range:
+                    for beta in beta_range:
+                        for warmup_ratio in warmup_ratio_range:
+                            preference_optimization(
+                                learning_rate=learning_rate,
+                                lr_scheduler_type=lr_scheduler_type,
+                                weight_decay=weight_decay,
+                                num_train_epochs=num_train_epochs,
+                                beta=beta,
+                                warmup_ratio=warmup_ratio,
+                                **kwargs
+                            )
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Preference Optimization Script")
-    parser.add_argument('--preference_source', type=str, default='all', help='Source where preferences are collected: all, self')
+    parser.add_argument('--preference_source', type=str, default='all',
+                        help='Source where preferences are collected: all, self')
     parser.add_argument('--dataset_name', type=str, default='KnowledgeCrosswords',
                         help='Name of the dataset: KnowledgeCrosswords, BioGeneration, CommonSense, NLGraph_SP')
     parser.add_argument('--eval_model_name', type=str, default='gpt-4', help='Name of the evaluation model: gpt-4')
-    parser.add_argument('--preference_type', type=str, default='oracle', help='Type of preference: oracle, direct, score.')
+    parser.add_argument('--preference_type', type=str, default='oracle',
+                        help='Type of preference: oracle, direct, score.')
     parser.add_argument('--trainer_name', type=str, default='dpo', help='Name of the trainer: dpo')
     parser.add_argument('--top_p', type=float, default=0.5, help='Top-p value: 0.5, 0.1')
-    parser.add_argument('--filtered', type=bool, default=True, help='Boolean flag to indicate if filtering is applied: True')
+    parser.add_argument('--filtered', type=bool, default=True,
+                        help='Boolean flag to indicate if filtering is applied: True')
     parser.add_argument('--load_from_exist', type=bool, default=True)
 
+    # training arguments
+    parser.add_argument('--learning_rate_range', type=float, nargs='+', default=[1e-4, 5e-5, 1e-5],
+                        help='Range of learning rates to explore: e.g., 1e-4 5e-5 1e-5')
+    parser.add_argument('--lr_scheduler_type_range', type=str, nargs='+',
+                        default=['linear', 'cosine', 'cosine_with_restarts', 'reduce_lr_on_plateau'],
+                        help='Range of learning rate scheduler types: e.g., linear_with_warmup cosine_with_warmup')
+    parser.add_argument('--weight_decay_range', type=float, nargs='+', default=[0, 1e-5, 1e-3],
+                        help='Range of weight decay values: e.g., 0 1e-5 1e-3')
+    parser.add_argument('--num_train_epochs_range', type=int, nargs='+', default=[1, 3, 5],
+                        help='Range of number of training epochs: e.g., 1 3 5')
+    parser.add_argument('--beta_range', type=float, nargs='+', default=[0.1],
+                        help='Range of beta values: e.g., 0.1')
+    parser.add_argument('--warmup_ratio_range', type=float, nargs='+', default=[0.1],
+                        help='Range of warmup ratio: e.g., 0.1')
     args = parser.parse_args()
 
-    preference_optimization(
-        preference_source=args.preference_source,
-        dataset_name=args.dataset_name,
-        preference_type=args.preference_type,
-        eval_model_name=args.eval_model_name,
-        trainer_name=args.trainer_name,
-        top_p=args.top_p,
-        filtered=args.filtered,
-        load_from_exist=args.load_from_exist
-    )
+    grid_search(**vars(args))

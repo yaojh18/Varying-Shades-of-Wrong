@@ -6,14 +6,14 @@ dataset_name_translator = {
 }
 
 
-def get_extract_instruction_name(dataset_name):
+def get_extract_instruction_name_and_pattern(dataset_name):
     if dataset_name == 'NLGraph_shortest_path':
-        return 'shortest_path_extract'
+        return 'shortest_path_extract', r'The total weight is (\d+)'
     elif dataset_name == 'NLGraph_maximum_flow':
-        return 'maximum_flow_extract'
+        return 'maximum_flow_extract', r'The maximum flow is (\d+)'
     elif dataset_name == 'NLGraph_matching':
-        return 'matching_extract'
+        return 'matching_extract', r'The maximum number of matches is (\d+)'
     elif dataset_name == 'BioGeneration' or dataset_name == 'NLGraph':
-        return 'nlgraph_extract'
+        return 'nlgraph_extract', r'The final answer is (\d+)'
     else:
-        return 'multi_choice_extract'
+        return 'multi_choice_extract', r'([A-Z])(\.|\. .+)?$'

@@ -277,7 +277,7 @@ def form_llama3_queries():
 
 
 def process_llama3_queries():
-    dataset_name_list = ['KC', 'COM2', 'NLGraph', 'NLGraph_shortest_path', 'ChessPuzzle']
+    dataset_name_list = ['BioGeneration']
     model_name_list = ['gpt-3.5', 'gpt-4', 'llama-3']
     for model_name in model_name_list:
         for dataset_name in dataset_name_list:

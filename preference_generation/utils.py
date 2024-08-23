@@ -77,7 +77,7 @@ class RawPreferenceDataset:
         self.train_dataset = list(self.train_dataset)
         self.test_dataset = list(self.test_dataset)
 
-    def generate_answer(self, instruction_name, split='train', key=None):
+    def generate_answer(self, instruction_name, split='train', key=None, peft_dir=None):
         with open(f'../instruction/{instruction_name}.txt', encoding='utf-8') as f:
             instruction = ''.join(f.readlines())
         queries = []
@@ -91,23 +91,23 @@ class RawPreferenceDataset:
             log_probs, responses = batch_query_openai(queries, model_name='gpt-4o')
         elif self.model_name == 'gpt-3.5':
             log_probs, responses = batch_query_openai(queries, model_name='gpt-3.5-turbo')
-        elif self.model_name == 'llama-3' or key == 'ori':
+        elif self.model_name == 'llama-3':
             log_probs, responses = batch_query_open_sourced_llm(queries, model_name='meta-llama/Meta-Llama-3-8B-Instruct')
-        elif key is not None:
+        elif peft_dir is not None:
             log_probs, responses = batch_query_open_sourced_llm(
                 queries,
                 model_name='meta-llama/Meta-Llama-3-8B-Instruct',
-                peft_dir=f'../output2/{self.dataset_name}/model/{key}/'
+                peft_dir=peft_dir
             )
         else:
             raise NotImplementedError
         responses_name = 'responses' if key is None else key + '_responses'
-        log_probs_name = 'factscore' if key is None else key + '_log_probs'
+        log_probs_name = 'log_probs' if key is None else key + '_log_probs'
         for i, data in enumerate(self.train_dataset if split == 'train' else self.test_dataset):
             data[log_probs_name] = log_probs[i * self.response_sample_size: i * self.response_sample_size + self.response_sample_size]
             data[responses_name] = responses[i * self.response_sample_size: i * self.response_sample_size + self.response_sample_size]
 
-    def process_answer(self, instruction_name, extract_instruction_name, split='train', key=None):
+    def process_answer(self, instruction_name, extract_instruction_name, split='train', key=None, peft_dir=None):
         with open(f'../instruction/{instruction_name}.txt', encoding='utf-8') as f:
             instruction = ''.join(f.readlines())
         with open(f'../instruction/{extract_instruction_name}.txt', encoding='utf-8') as f:
@@ -133,13 +133,13 @@ class RawPreferenceDataset:
             _, responses = batch_query_openai(queries, model_name='gpt-4o', mode='extract')
         elif self.model_name == 'gpt-3.5':
             _, responses = batch_query_openai(queries, model_name='gpt-3.5-turbo', mode='extract')
-        elif self.model_name == 'llama-3' or key == 'ori':
+        elif self.model_name == 'llama-3':
             _, responses = batch_query_open_sourced_llm(queries, model_name='meta-llama/Meta-Llama-3-8B-Instruct', mode='extract')
-        elif key is not None:
+        elif peft_dir is not None:
             log_probs, responses = batch_query_open_sourced_llm(
                 queries,
                 model_name='meta-llama/Meta-Llama-3-8B-Instruct',
-                peft_dir=f'../output2/{self.dataset_name}/model/{key}/',
+                peft_dir=peft_dir,
                 mode='extract'
             )
         else:
@@ -155,17 +155,19 @@ class RawPreferenceDataset:
         )
 
     def save_dataset(self):
-        os.makedirs(f'../output/{self.model_name}/', exist_ok=True)
         if len(self.train_dataset) > 0:
+            os.makedirs(f'../output/{self.model_name}/', exist_ok=True)
             with open(f'../output/{self.model_name}/{self.output_name}.jsonl', 'w', encoding='utf-8') as file:
                 for data in self.train_dataset:
                     file.write(json.dumps(data) + '\n')
         if len(self.test_dataset) > 0:
             if self.load_test_path is not None:
+                os.makedirs(os.path.dirname(self.load_test_path), exist_ok=True)
                 with open(self.load_test_path, 'w', encoding='utf-8') as file:
                     for data in self.test_dataset:
                         file.write(json.dumps(data) + '\n')
             else:
+                os.makedirs(f'../output/{self.model_name}/', exist_ok=True)
                 with open(f'../output/{self.model_name}/{self.output_name}_test.jsonl', 'w', encoding='utf-8') as file:
                     for data in self.test_dataset:
                         file.write(json.dumps(data) + '\n')
@@ -273,17 +275,18 @@ def batch_query_open_sourced_llm(prompt_list, model_name, peft_dir=None, mode='g
             "output_logits": True,
         }
         batch_size = 10
-    elif mode == 'evaluate':
+    elif mode.find('evaluate') >= 0:
+        _, max_new_tokens = mode.split('_')
         generate_kwargs = {
             "do_sample": False,
             "temperature": None,
             "top_p": None,
-            "max_new_tokens": 1024,
+            "max_new_tokens": int(max_new_tokens),
             "pad_token_id": tokenizer.eos_token_id,
             "eos_token_id": tokenizer.eos_token_id,
         }
-        batch_size = 10
-    else:
+        batch_size = 5 if int(max_new_tokens) == 256 else 1
+    else:  # mode = 'extract'
         generate_kwargs = {
             "do_sample": False,
             "temperature": None,
@@ -411,7 +414,7 @@ def get_vera_score(model: Vera, context, options):
     return vera_scores
 
 
-def clean_extracted_answers(dataset: list, key, pattern, map_into_index=True):
+def clean_extracted_answers(dataset: list, key, pattern, map_into_index=True, map_range=(0, 1, 2, 3)):
     pattern = re.compile(pattern)
     for data in dataset:
         new_extracted_answers = []
@@ -423,6 +426,8 @@ def clean_extracted_answers(dataset: list, key, pattern, map_into_index=True):
                     result = int(result)
                 elif map_into_index:
                     result = letter2idx[result]
+                    if result not in map_range:
+                        result = None
             else:
                 result = None
             new_extracted_answers.append(result)
