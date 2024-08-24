@@ -1,13 +1,14 @@
 import json
 import os
+import re
+import argparse
+import networkx
+import numpy as np
 from datetime import datetime
 from heapq import nlargest
 
 from preference_generation.metric import load_dataset
 from preference_optimization.utils import *
-
-import argparse
-import numpy as np
 
 
 def generate_evaluation_responses(dataset, peft_dir):
@@ -27,15 +28,19 @@ def generate_evaluation_responses(dataset, peft_dir):
 def calculate_metrics(dataset, key=None):
     if dataset.dataset_name == 'BioGeneration':   # TODO: mask this line when testing on BioGeneration
         return 0.0, 0.0, 0.0
+    elif dataset.dataset_name == 'NLGraph_SP':
+        if 'normalizer' not in dataset.test_dataset[0]:
+            calculate_normalizer_for_nlgraph(dataset)
     correctness = []
     accuracy = []
     confidence = []
     for data in dataset.test_dataset:
         confidence += [np.exp(-l) for l in data[key + '_log_probs' if key is not None else 'log_probs']]
         if dataset.dataset_name.find('NLGraph') >= 0:
-            cor = [-abs(int(data['correct_answer']) - e) if e is not None else -9999 for e in data[key + '_extracted_answers' if key is not None else 'extracted_answers']]
+            cor = [1.0 - (abs(e - data['correct_answer']) / (data['normalizer'] - data['correct_answer'])) if e is not None else 0.0
+                   for e in data[key + '_extracted_answers' if key is not None else 'extracted_answers']]
             correctness += cor
-            accuracy += [c == 0 for c in cor]
+            accuracy += [c == 1.0 for c in cor]
         elif dataset.dataset_name == 'BioGeneration':
             cor = [fs if fs is not None else 0.0 for fs in data[key + '_factscore' if key is not None else 'factscore']]
             correctness += cor
@@ -45,12 +50,6 @@ def calculate_metrics(dataset, key=None):
             correctness += cor
             accuracy += [c == 1.0 for c in cor]
 
-    # normalize
-    if dataset.dataset_name.find('NLGraph') >= 0:
-        mask = [c != -9999 for c in correctness]
-        correctness = [c if c != -9999 else 0 for c in correctness]
-        min_c = min(correctness)
-        correctness = [c if m else min_c for m, c in zip(mask, correctness)]
     # remove correct responses
     correctness = [c for c, a in zip(correctness, accuracy) if not a]
 
@@ -72,6 +71,41 @@ def calculate_ece(y_true, y_pred_prob, n_bins=10):
             ece += np.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
 
     return ece
+
+
+def find_longest_path(G, start, end):
+    longest_length = 0
+
+    def dfs(current_node, current_path, current_length):
+        nonlocal longest_length
+
+        if current_node == end:
+            if current_length > longest_length:
+                longest_length = current_length
+            return
+
+        for neighbor, data in G[current_node].items():
+            if neighbor not in current_path:
+                current_path.append(neighbor)
+                dfs(neighbor, current_path, current_length + data['weight'])
+                current_path.pop()
+
+    dfs(start, [start], 0)
+    return longest_length
+
+
+def calculate_normalizer_for_nlgraph(dataset):
+    graph_pattern = re.compile(r'an edge between node (\d+) and node (\d+) with weight (\d+)')
+    question_pattern = re.compile(r'Q: Give the shortest path from node (\d+) to node (\d+)')
+    for data in dataset.test_dataset:
+        edge_strs = data['query'].split('\n')[1: -2]
+        start, end = question_pattern.search(data['query'].split('\n')[-2]).groups()
+        start, end = int(start), int(end)
+        edge_args = [graph_pattern.search(edge_str).groups() for edge_str in edge_strs]
+        edge_args = [(int(edge_arg[0]), int(edge_arg[1]), int(edge_arg[2])) for edge_arg in edge_args]
+        G = networkx.Graph()
+        G.add_weighted_edges_from(edge_args)
+        data['normalizer'] = find_longest_path(G, start, end)
 
 
 def evaluate_grid_search(
@@ -136,15 +170,15 @@ def evaluate_grid_search(
             if dataset_name == 'BioGeneration':
                 dataset.response_sample_size = 3
             generate_evaluation_responses(dataset, f'../output2/{dataset_name}/model/{preference_name}/{subdir}')
+            if visualize:
+                with open(dataset.load_test_path[:-1], 'w', encoding='utf-8') as file:
+                    json.dump(dataset.test_dataset, file, indent=4)
         else:
             dataset = load_dataset(
                 dataset_name=dataset_name,
                 model_name='',
                 load_test_path=os.path.join(response_path, subdir, f'{eval_source}.jsonl')
             )
-        if visualize:
-            with open(dataset.load_test_path[:-1], 'w', encoding='utf-8') as file:
-                json.dump(dataset.test_dataset, file, indent=4)
         correctness, accuracy, ece = calculate_metrics(dataset)
         metrics[subdir + '_correctness'] = correctness
         metrics[subdir + '_accuracy'] = accuracy

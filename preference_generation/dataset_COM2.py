@@ -1,5 +1,4 @@
 import argparse
-
 import pandas as pd
 from preference_generation.utils import *
 
@@ -55,39 +54,6 @@ class COM2(RawPreferenceDataset):
             del data['context']
             del data['conditions']
         del vera_model
-
-
-# class COM2(RawPreferenceDataset):
-#     def __init__(self, **kwargs):
-#         self.output_name = kwargs['dataset_name']
-#         super().__init__(**kwargs)
-#
-#     def load_dataset(self):
-#         raw_dataset = pd.read_csv(f'../dataset/{self.dataset_name}.csv', encoding='utf-8')
-#         for i in range(len(raw_dataset)):
-#             if raw_dataset.loc[i, 'label'] != 4 and (raw_dataset.loc[i, 'type'].find('2i') >= 0 or raw_dataset.loc[i, 'type'].find('3i') >= 0):
-#                 if raw_dataset.loc[i, 'type'].find('2i') >= 0:
-#                     pattern = re.compile(r'What event or state is both (.*?) and also (.*?)\?')
-#                     match = pattern.search(raw_dataset.loc[i, 'question'])
-#                 else:
-#                     pattern = re.compile(r'What event or state is both (.*?), (.*?), and also (.*?)\?')
-#                     match = pattern.search(raw_dataset.loc[i, 'question'])
-#                 self.dataset.append({
-#                     'question': raw_dataset.loc[i, 'question'],
-#                     'context': raw_dataset.loc[i, 'context'],
-#                     'conditions': match.groups(),
-#                 })
-#
-#     def precess_dataset(self, sample_size):
-#         if 0 < sample_size < len(self.dataset):
-#             random.seed(42)
-#             self.dataset = random.sample(self.dataset, sample_size)
-#         instruction = 'As an expert in commonsense reasoning, your task is to provide a concise response to a question based on the given context. The question focuses on studying the causes, effects, or attributes of personas related to the given context. You should analyze the question step by step with explanation and provide the common event or state that answer the question as your final answer.'
-#         for data in self.dataset:
-#             query = f"Instruction: {instruction}\nContext: {data['context']}\nQuestion: {data['question']}\n"
-#             data['query'] = query
-#             del data['question']
-#             del data['context']
 
 
 if __name__ == '__main__':

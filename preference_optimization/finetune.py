@@ -11,7 +11,6 @@ from trl import DPOTrainer
 from transformers import TrainingArguments
 from transformers import BitsAndBytesConfig, AutoTokenizer, AutoModelForCausalLM
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
-from huggingface_hub import login
 from unsloth import FastLanguageModel
 
 from preference_generation.metric import load_dataset
@@ -214,6 +213,7 @@ def preference_optimization(
     grid_search_name = f"lr={learning_rate:.1e}_scheduler={lr_scheduler_type}_decay={weight_decay:.1e}_epochs={num_train_epochs}_beta={beta:.1e}_warmup={warmup_ratio:.1e}_timestamp={datetime.now().strftime('%Y%m%d-%H%M%S')}"
     output_name = f"{preference_source}_{dataset_collector.output_name}_{trainer_name}"
     if load_from_exist:
+        os.makedirs(f'../output2/{dataset_name}/model/{output_name}/', exist_ok=True)
         parent_path = f'../output2/{dataset_name}/model/{output_name}/'
         grid_search_subdirs = [name for name in os.listdir(parent_path) if os.path.isdir(os.path.join(parent_path, name))]
         for subdir in grid_search_subdirs:
@@ -227,7 +227,6 @@ def preference_optimization(
     dataset = dataset.select(select_idxs)
     dataset = dataset.train_test_split(test_size=0.1)
 
-    # login(token='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')
     # bnb_config = BitsAndBytesConfig(
     #     load_in_4bit=True,
     #     bnb_4bit_quant_type="nf4",
@@ -240,7 +239,7 @@ def preference_optimization(
     #     torch_dtype=torch.bfloat16,
     #     quantization_config=bnb_config,
     #     attn_implementation="flash_attention_2",
-    #     use_cache=False
+    #     token='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'
     # )
     # peft_config = LoraConfig(
     #     r=16,
@@ -332,7 +331,7 @@ def preference_optimization(
     trainer.train()
     trainer.save_model()
 
-    # Save anything you are interested about los here.
+    # Save anything you are interested about loss here.
     train_losses = []
     val_losses = []
     for log in trainer.state.log_history:
@@ -343,7 +342,7 @@ def preference_optimization(
     out_json = {
         'loss': train_losses,
         'val_loss': val_losses,
-        'best_val_loss': min(val_losses)
+        'best_val_loss': min(val_losses) if len(val_losses) > 0 else 1.0
     }
     with open(f'../output2/{dataset_name}/model/{output_name}/{grid_search_name}/log.json', 'w', encoding='utf-8') as file:
         json.dump(out_json, file)

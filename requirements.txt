@@ -11,3 +11,4 @@ triton==2.3.0
 trl==0.8.6
 unsloth==2024.8
 xformers==0.0.26.post1
+networkx==3.2.1

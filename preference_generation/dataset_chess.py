@@ -92,6 +92,3 @@ if __name__ == '__main__':
     chess_dataset.generate_answer(instruction_name=args.instruction_name)
     chess_dataset.process_answer(instruction_name=args.instruction_name, extract_instruction_name=args.extract_instruction_name)
     chess_dataset.save_dataset()
-
-    # clean_extracted_answers(chess_dataset, r'([KQRBN]?[a-h]?[1-8]?[x-]?([a-h][1-8]|O-O|O-O-O)=?[QRBN]?[\+\#]?)', map_into_index=False)
-

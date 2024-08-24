@@ -1,6 +1,5 @@
 import argparse
 from datasets import load_dataset
-from transformers import AutoModelForSequenceClassification
 from preference_generation.utils import *
 
 
@@ -58,12 +57,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
     hs_dataset = HellaSwag(
         dataset_name=args.dataset_name,
-        model_name='gpt-4',
+        model_name=args.model_name,
         dataset_sample_size=args.dataset_sample_size,
-        response_sample_size=1,
-        load_from_exist=True
+        response_sample_size=args.response_sample_size,
+        load_from_exist=args.load_from_exist
     )
-    hs_dataset.save_dataset()
-    hs_dataset.generate_answer(instruction_name=args.instruction_name)
-    hs_dataset.process_answer(instruction_name=args.instruction_name, extract_instruction_name=args.extract_instruction_name)
     hs_dataset.save_dataset()

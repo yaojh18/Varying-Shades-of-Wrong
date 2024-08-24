@@ -40,15 +40,6 @@ class BioGeneration(RawPreferenceDataset):
 
             for data in tqdm(self.train_dataset if split == 'train' else self.test_dataset, desc='Generating FactScore'):
                 if factscore_name not in data or None in data[factscore_name]:
-                    # with ProcessPoolExecutor(max_workers=1) as executor:
-                        # futures = [executor.submit(self.get_factscore_for_single_response, index, fs, data['topic'], response)
-                        #            for index, response in enumerate(data[responses_name])]
-                        # factscore_dict = collections.defaultdict(str)
-                        # for job in as_completed(futures):
-                        #     index, factscore = job.result(timeout=None)
-                        #     factscore_dict[index] = factscore
-                        # data[factscore_name] = [factscore_dict[i] for i in range(len(data[responses_name]))]
-                        # self.save_dataset()
                     try:
                         scores = fs.get_score([data['topic']] * self.response_sample_size, data[responses_name])['score']
                     except Exception as e:
@@ -58,14 +49,6 @@ class BioGeneration(RawPreferenceDataset):
                     self.save_dataset()
         else:
             raise NotImplementedError('This function must be run separately in Pytorch==1.13.1 environment.')
-
-    @staticmethod
-    def get_factscore_for_single_response(idx, factscorer, topic, response):
-        try:
-            return idx, factscorer.get_score([topic], [response])['score']
-        except Exception as e:
-            print(e)
-            return idx, None
 
 
 if __name__ == '__main__':
