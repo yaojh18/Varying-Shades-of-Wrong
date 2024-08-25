@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import torch
 import argparse
 import networkx
 import numpy as np
@@ -15,6 +16,7 @@ def generate_evaluation_responses(dataset, peft_dir):
     # generate responses
     dataset.generate_answer('CoT', split='test', peft_dir=peft_dir)
     dataset.save_dataset()
+    torch.cuda.empty_cache()
     if dataset.dataset_name != 'BioGeneration':  # TODO: mask this line when testing on BioGeneration
         # process responses
         eval_instruction_name, pattern = get_extract_instruction_name_and_pattern(
@@ -23,6 +25,7 @@ def generate_evaluation_responses(dataset, peft_dir):
         dataset.extract_pattern = pattern
         dataset.process_answer('CoT', eval_instruction_name, split='test', peft_dir=peft_dir)
         dataset.save_dataset()
+        torch.cuda.empty_cache()
 
 
 def calculate_metrics(dataset, key=None):
