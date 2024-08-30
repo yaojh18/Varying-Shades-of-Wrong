@@ -87,7 +87,11 @@ def sample_new_test_dataset():
         for line in file:
             data = json.loads(line.strip())
             fs_train_queries.append(data['query'])
-    with open(f'../dataset/KC.jsonl', 'r', encoding='utf-8') as file:
+    with open(f'../output/gpt-3.5/BioGeneration_test.jsonl', 'r', encoding='utf-8') as file:
+        for line in file:
+            data = json.loads(line.strip())
+            fs_train_queries.append(data['query'])
+    with open(f'../dataset/BioGeneration.jsonl', 'r', encoding='utf-8') as file:
         for line in file:
             data = json.loads(line.strip())
             fs_all_dataset.append({
@@ -98,8 +102,8 @@ def sample_new_test_dataset():
         if data['query'] not in fs_train_queries:
             fs_test_dataset.append(data)
     random.seed(42)
-    fs_test_dataset = random.sample(fs_test_dataset, 125)
-    with open(f'../output/gpt-3.5/BioGeneration_test.jsonl', 'w', encoding='utf-8') as file:
+    fs_test_dataset = random.sample(fs_test_dataset, min(125, len(fs_test_dataset)))
+    with open(f'../output/gpt-3.5/BioGeneration_test_test.jsonl', 'w', encoding='utf-8') as file:
         for data in fs_test_dataset:
             file.write(json.dumps(data) + '\n')
 
@@ -109,9 +113,15 @@ def sample_new_test_dataset():
         for line in file:
             data = json.loads(line.strip())
             kc_train_queries.append(data['query'])
+    with open(f'../output/gpt-3.5/KC_wo_knowledge_test.jsonl', 'r', encoding='utf-8') as file:
+        for line in file:
+            data = json.loads(line.strip())
+            kc_train_queries.append(data['query'])
     kc_dataset = KnowledgeCrosswords(
         dataset_name='KC',
         model_name='gpt-3.5',
+        instruction_name='',
+        extract_instruction_name='',
         knowledge=False,
         response_sample_size=1,
         dataset_sample_size=-1,
@@ -121,70 +131,98 @@ def sample_new_test_dataset():
         if data['query'] not in kc_train_queries:
             kc_test_dataset.append(data)
     random.seed(42)
-    kc_test_dataset = random.sample(kc_test_dataset, 125)
-    with open(f'../output/gpt-3.5/KC_wo_knowledge_test.jsonl', 'w', encoding='utf-8') as file:
+    kc_test_dataset = random.sample(kc_test_dataset, min(125, len(kc_test_dataset)))
+    with open(f'../output/gpt-3.5/KC_wo_knowledge_test_test.jsonl', 'w', encoding='utf-8') as file:
         for data in kc_test_dataset:
             file.write(json.dumps(data) + '\n')
 
-    nlgraph_train_queries = []
-    with open(f'../output/gpt-3.5/NLGraph.jsonl', 'r', encoding='utf-8') as file:
+    com_train_queries = []
+    com_test_dataset = []
+    with open(f'../output/gpt-3.5/COM2.jsonl', 'r', encoding='utf-8') as file:
         for line in file:
             data = json.loads(line.strip())
-            nlgraph_train_queries.append(data['query'])
-
-    nlg_sp_test_dataset = []
-    nlg_sp_dataset = NLGraph(
-        dataset_name='NLGraph_shortest_path',
+            com_train_queries.append(data['query'])
+    with open(f'../output/gpt-3.5/COM2_test.jsonl', 'r', encoding='utf-8') as file:
+        for line in file:
+            data = json.loads(line.strip())
+            com_train_queries.append(data['query'])
+    com_dataset = COM2(
+        dataset_name='COM2',
         model_name='gpt-3.5',
+        instruction_name='',
+        extract_instruction_name='',
         response_sample_size=1,
         dataset_sample_size=-1,
         load_from_exist=False
     )
-    for data in nlg_sp_dataset.dataset:
-        if data['query'] not in nlgraph_train_queries:
-            nlg_sp_test_dataset.append(data)
+    for data in com_dataset.dataset:
+        if data['query'] not in com_train_queries:
+            com_test_dataset.append(data)
     random.seed(42)
-    nlg_sp_test_dataset = random.sample(nlg_sp_test_dataset, 42)
-
-    nlg_mf_test_dataset = []
-    nlg_mf_dataset = NLGraph(
-        dataset_name='NLGraph_maximum_flow',
-        model_name='gpt-3.5',
-        response_sample_size=1,
-        dataset_sample_size=-1,
-        load_from_exist=False
-    )
-    for data in nlg_mf_dataset.dataset:
-        if data['query'] not in nlgraph_train_queries:
-            nlg_mf_test_dataset.append(data)
-    random.seed(42)
-    nlg_mf_test_dataset = random.sample(nlg_mf_test_dataset, 42)
-
-    nlg_mt_test_dataset = []
-    nlg_mt_dataset = NLGraph(
-        dataset_name='NLGraph_matching',
-        model_name='gpt-3.5',
-        response_sample_size=1,
-        dataset_sample_size=-1,
-        load_from_exist=False
-    )
-    for data in nlg_mt_dataset.dataset:
-        if data['query'] not in nlgraph_train_queries:
-            nlg_mt_test_dataset.append(data)
-    random.seed(42)
-    nlg_mt_test_dataset = random.sample(nlg_mt_test_dataset, 42)
-
-    nlg_test_dataset = nlg_sp_test_dataset + nlg_mf_test_dataset + nlg_mt_test_dataset
-    random.seed(42)
-    random.shuffle(nlg_test_dataset)
-
-    with open(f'../output/gpt-3.5/NLGraph_test.jsonl', 'w', encoding='utf-8') as file:
-        for data in nlg_test_dataset:
+    com_test_dataset = random.sample(com_test_dataset, 125)
+    with open(f'../output/gpt-3.5/COM2_test_test.jsonl', 'w', encoding='utf-8') as file:
+        for data in com_test_dataset:
             file.write(json.dumps(data) + '\n')
 
+    # nlgraph_train_queries = []
+    # with open(f'../output/gpt-3.5/NLGraph.jsonl', 'r', encoding='utf-8') as file:
+    #     for line in file:
+    #         data = json.loads(line.strip())
+    #         nlgraph_train_queries.append(data['query'])
+    #
+    # nlg_sp_test_dataset = []
+    # nlg_sp_dataset = NLGraph(
+    #     dataset_name='NLGraph_shortest_path',
+    #     model_name='gpt-3.5',
+    #     response_sample_size=1,
+    #     dataset_sample_size=-1,
+    #     load_from_exist=False
+    # )
+    # for data in nlg_sp_dataset.dataset:
+    #     if data['query'] not in nlgraph_train_queries:
+    #         nlg_sp_test_dataset.append(data)
+    # random.seed(42)
+    # nlg_sp_test_dataset = random.sample(nlg_sp_test_dataset, 42)
+    #
+    # nlg_mf_test_dataset = []
+    # nlg_mf_dataset = NLGraph(
+    #     dataset_name='NLGraph_maximum_flow',
+    #     model_name='gpt-3.5',
+    #     response_sample_size=1,
+    #     dataset_sample_size=-1,
+    #     load_from_exist=False
+    # )
+    # for data in nlg_mf_dataset.dataset:
+    #     if data['query'] not in nlgraph_train_queries:
+    #         nlg_mf_test_dataset.append(data)
+    # random.seed(42)
+    # nlg_mf_test_dataset = random.sample(nlg_mf_test_dataset, 42)
+    #
+    # nlg_mt_test_dataset = []
+    # nlg_mt_dataset = NLGraph(
+    #     dataset_name='NLGraph_matching',
+    #     model_name='gpt-3.5',
+    #     response_sample_size=1,
+    #     dataset_sample_size=-1,
+    #     load_from_exist=False
+    # )
+    # for data in nlg_mt_dataset.dataset:
+    #     if data['query'] not in nlgraph_train_queries:
+    #         nlg_mt_test_dataset.append(data)
+    # random.seed(42)
+    # nlg_mt_test_dataset = random.sample(nlg_mt_test_dataset, 42)
+    #
+    # nlg_test_dataset = nlg_sp_test_dataset + nlg_mf_test_dataset + nlg_mt_test_dataset
+    # random.seed(42)
+    # random.shuffle(nlg_test_dataset)
+    #
+    # with open(f'../output/gpt-3.5/NLGraph_test.jsonl', 'w', encoding='utf-8') as file:
+    #     for data in nlg_test_dataset:
+    #         file.write(json.dumps(data) + '\n')
 
-def form_llama3_queries():
-    dataset_name_list = ['BioGeneration']
+
+def form_llm_queries(eval_model_name='llama-3'):
+    dataset_name_list = ['KC', 'BioGeneration', 'COM2', 'NLGraph_shortest_path']
     model_name_list = ['gpt-3.5', 'gpt-4', 'llama-3']
 
     for model_name in model_name_list:
@@ -234,12 +272,12 @@ def form_llama3_queries():
                                 'output': None,
                             })
                             idx += 2
-            os.makedirs(f'../output/pairwise/{model_name}/llama-3', exist_ok=True)
-            with open(f'../output/pairwise/{model_name}/llama-3/{dataset_name}.jsonl', 'w', encoding='utf-8') as file:
+            os.makedirs(f'../output/pairwise/{model_name}/{eval_model_name}', exist_ok=True)
+            with open(f'../output/pairwise/{model_name}/{eval_model_name}/{dataset_name}.jsonl', 'w', encoding='utf-8') as file:
                 for data in evaluation_jsonl:
                     file.write(json.dumps(data) + '\n')
             os.makedirs(f'../output/remote/short', exist_ok=True)
-            with open(f'../output/remote/short/pairwise_{model_name}_llama-3_{dataset_name}.jsonl', 'w', encoding='utf-8') as file:
+            with open(f'../output/remote/short/pairwise_{model_name}_{eval_model_name}_{dataset_name}.jsonl', 'w', encoding='utf-8') as file:
                 for data in prompt_list:
                     file.write(json.dumps(data) + '\n')
 
@@ -253,12 +291,12 @@ def form_llama3_queries():
                     query = data['query'][:-9]
                 else:
                     query = data['query']
-                data['llama-3_reward_5_responses'] = []
+                data[f'{eval_model_name}_reward_5_responses'] = []
                 for i in range(0, len(data['responses']), batch_size):
                     args = [query]
                     for j in range(i, i + batch_size):
                         args.append(data['responses'][j])
-                    data['llama-3_reward_5_responses'].append(idx)
+                    data[f'{eval_model_name}_reward_5_responses'].append(idx)
                     prompt_list.append({
                         'id': idx,
                         'prompt': instruction.format(*args),
@@ -272,18 +310,18 @@ def form_llama3_queries():
                     file.write(json.dumps(data) + '\n')
 
 
-def process_llama3_queries():
-    dataset_name_list = ['BioGeneration']
+def process_llm_queries(eval_model_name='llama-3'):
+    dataset_name_list = ['KC', 'BioGeneration', 'COM2', 'NLGraph_shortest_path']
     model_name_list = ['gpt-3.5', 'gpt-4', 'llama-3']
     for model_name in model_name_list:
         for dataset_name in dataset_name_list:
             remote_responses = []
             evaluation_jsonl = []
-            with open(f'../output/remote/short/pairwise_{model_name}_llama-3_{dataset_name}_output.jsonl', 'r', encoding='utf-8') as file:
+            with open(f'../output/remote/short/pairwise_{model_name}_{eval_model_name}_{dataset_name}_output.jsonl', 'r', encoding='utf-8') as file:
                 for line in file:
                     remote_responses.append(json.loads(line.strip()))
             remote_responses.sort(key=lambda x: x['id'])
-            with open(f'../output/pairwise/{model_name}/llama-3/{dataset_name}.jsonl', 'r', encoding='utf-8') as file:
+            with open(f'../output/pairwise/{model_name}/{eval_model_name}/{dataset_name}.jsonl', 'r', encoding='utf-8') as file:
                 for line in file:
                     evaluation_jsonl.append(json.loads(line.strip()))
             pattern = re.compile(r'Preferred output: (\d+)')
@@ -300,7 +338,7 @@ def process_llama3_queries():
                     eval_json['reversed_extracted_evaluation'] = int(match.group(1))
                 else:
                     eval_json['reversed_extracted_evaluation'] = None
-            with open(f'../output/pairwise/{model_name}/llama-3/{dataset_name}.jsonl', 'w', encoding='utf-8') as file:
+            with open(f'../output/pairwise/{model_name}/{eval_model_name}/{dataset_name}.jsonl', 'w', encoding='utf-8') as file:
                 for data in evaluation_jsonl:
                     file.write(json.dumps(data) + '\n')
             dataset = load_dataset(dataset_name, model_name)
@@ -313,17 +351,17 @@ def process_llama3_queries():
             for data in dataset.train_dataset:
                 rewards = []
                 responses = []
-                for res_idx in data['llama-3_reward_5_responses']:
+                for res_idx in data[f'{eval_model_name}_reward_5_responses']:
                     responses.append(remote_responses[res_idx]['output']['content'])
                     scores = re.findall(pattern, responses[-1])
                     scores = list(map(int, scores))
                     if len(scores) != 5:
                         scores = [None] * 5
                     rewards += scores
-                data['llama-3_reward_5_responses'] = responses
-                data['llama-3_reward_5'] = rewards
+                data[f'{eval_model_name}_reward_5_responses'] = responses
+                data[f'{eval_model_name}_reward_5'] = rewards
             dataset.save_dataset()
 
 
 if __name__ == '__main__':
-    pass
+    form_llm_queries('gemini')

@@ -7,6 +7,7 @@ import networkx
 import numpy as np
 from datetime import datetime
 from heapq import nlargest
+from collections import defaultdict
 
 from preference_generation.metric import load_dataset
 from preference_optimization.utils import *
@@ -14,26 +15,24 @@ from preference_optimization.utils import *
 
 def generate_evaluation_responses(dataset, peft_dir):
     # generate responses
-    dataset.generate_answer('CoT', split='test', peft_dir=peft_dir)
-    dataset.save_dataset()
-    torch.cuda.empty_cache()
-    if dataset.dataset_name != 'BioGeneration':  # TODO: mask this line when testing on BioGeneration
-        # process responses
-        eval_instruction_name, pattern = get_extract_instruction_name_and_pattern(
-            dataset_name_translator[dataset.dataset_name]
-        )
-        dataset.extract_pattern = pattern
-        dataset.process_answer('CoT', eval_instruction_name, split='test', peft_dir=peft_dir)
+    if 'responses' not in dataset.test_dataset[0]:
+        dataset.generate_answer(split='test', peft_dir=peft_dir)
+        dataset.save_dataset()
+        torch.cuda.empty_cache()
+    # process responses
+    if 'extracted_answers' in dataset.test_dataset[0] or 'factscore' in dataset.test_dataset[0]:
+        dataset.process_answer(split='test', peft_dir=peft_dir)
         dataset.save_dataset()
         torch.cuda.empty_cache()
 
 
 def calculate_metrics(dataset, key=None):
-    if dataset.dataset_name == 'BioGeneration':   # TODO: mask this line when testing on BioGeneration
-        return 0.0, 0.0, 0.0
-    elif dataset.dataset_name == 'NLGraph_SP':
+    if dataset.dataset_name == 'NLGraph_SP':
         if 'normalizer' not in dataset.test_dataset[0]:
-            calculate_normalizer_for_nlgraph(dataset)
+            if dataset.extract_instruction_name == 'shortest_path_extract':
+                calculate_normalizer_for_shortest_path(dataset)
+            elif dataset.extract_instruction_name == 'maximum_flow_extract':
+                calculate_normalizer_for_maximum_flow(dataset)
     correctness = []
     accuracy = []
     confidence = []
@@ -54,9 +53,10 @@ def calculate_metrics(dataset, key=None):
             accuracy += [c == 1.0 for c in cor]
 
     # remove correct responses
-    correctness = [c for c, a in zip(correctness, accuracy) if not a]
 
-    return np.mean(correctness), np.mean(accuracy), calculate_ece(np.array(accuracy), np.array(confidence))
+    wrong_correctness = [c for c, a in zip(correctness, accuracy) if not a]
+
+    return np.mean(correctness), np.mean(wrong_correctness), np.mean(accuracy), calculate_ece(np.array(accuracy), np.array(confidence))
 
 
 def calculate_ece(y_true, y_pred_prob, n_bins=10):
@@ -97,9 +97,24 @@ def find_longest_path(G, start, end):
     return longest_length
 
 
-def calculate_normalizer_for_nlgraph(dataset):
+def calculate_normalizer_for_shortest_path(dataset):
     graph_pattern = re.compile(r'an edge between node (\d+) and node (\d+) with weight (\d+)')
     question_pattern = re.compile(r'Q: Give the shortest path from node (\d+) to node (\d+)')
+    for data in dataset.test_dataset:
+        edge_strs = data['query'].split('\n')[1: -2]
+        start, end = question_pattern.search(data['query'].split('\n')[-2]).groups()
+        start, end = int(start), int(end)
+        edge_args = [graph_pattern.search(edge_str).groups() for edge_str in edge_strs]
+        edge_args = [(int(edge_arg[0]), int(edge_arg[1]), int(edge_arg[2])) for edge_arg in edge_args]
+        G = networkx.Graph()
+        G.add_weighted_edges_from(edge_args)
+        data['normalizer'] = find_longest_path(G, start, end)
+
+
+def calculate_normalizer_for_maximum_flow(dataset):
+    # TODO: change the method here.
+    graph_pattern = re.compile(r'an edge from node (\d+) to node (\d+) with capacity (\d+)')
+    question_pattern = re.compile(r'Q: What is the maximum flow from node (\d+) to node (\d+)')
     for data in dataset.test_dataset:
         edge_strs = data['query'].split('\n')[1: -2]
         start, end = question_pattern.search(data['query'].split('\n')[-2]).groups()
@@ -125,19 +140,19 @@ def evaluate_grid_search(
         visualize=True
 ):
     preference_name = preference_source + '_' + preference_type
-    if preference_type == 'direct':
+    if preference_type.find('direct') >= 0:
         if filtered:
             preference_name += '_filtered_' + eval_model_name
         else:
             preference_name += '_' + eval_model_name
-    elif preference_type == 'score':
+    elif preference_type.find('score') >= 0:
         preference_name += '_' + str(top_p) + '_' + eval_model_name
     preference_name += '_' + trainer_name
     model_path = f'../output2/{dataset_name}/model/{preference_name}/'
     _grid_search_subdirs = [name for name in os.listdir(model_path) if os.path.isdir(os.path.join(model_path, name))]
     grid_search_subdirs = []
     for subdir in _grid_search_subdirs:
-        if os.path.exists(os.path.join(model_path, subdir, 'log.json')) \
+        if os.path.exists(os.path.join(model_path, subdir, 'log_all.json')) \
                 and os.path.exists(os.path.join(model_path, subdir, 'adapter_model.safetensors')):
             grid_search_subdirs.append(subdir)
     if eval_strategy == 'latest':
@@ -152,61 +167,92 @@ def evaluate_grid_search(
         _, top_k = eval_strategy.split('_')
         top_k = int(top_k)
         val_losses = []
+        with open(f'../output2/{dataset_name}/model/log_all.json', 'r', encoding='utf-8') as log_file:
+            logs = json.load(log_file)
         for subdir in grid_search_subdirs:
-            with open(os.path.join(model_path, subdir, 'log.json'), 'r', encoding='utf-8') as log_file:
-                log_data = json.load(log_file)
-                best_val_loss = log_data['best_val_loss']
-                val_losses.append((best_val_loss, subdir))
+            if subdir in logs[preference_name]:
+                val_losses.append((logs[preference_name][subdir]['best_val_loss'], subdir))
+        # for subdir in grid_search_subdirs:
+        #     with open(os.path.join(model_path, subdir, 'log_all.json'), 'r', encoding='utf-8') as log_file:
+        #         log_data = json.load(log_file)
+        #         best_val_loss = log_data['best_val_loss']
+        #         val_losses.append((best_val_loss, subdir))
         top_k_subdirs = nlargest(top_k, val_losses, key=lambda x: x[0])
         grid_search_subdirs = [subdir[1] for subdir in top_k_subdirs]
 
     response_path = f'../output2/{dataset_name}/response/{preference_name}/'
-    metrics = {}
     for subdir in grid_search_subdirs:
         if not (load_from_exist and os.path.exists(os.path.join(response_path, subdir, f'{eval_source}.jsonl'))):
+            if not os.path.exists(f'../output2/{dataset_name}/response/{eval_source}.jsonl'):
+                print(f'No evaluation data for {dataset_name}/{eval_source}!')
+                return
             dataset = load_dataset(
                 dataset_name=dataset_name,
                 model_name='',
                 load_test_path=f'../output2/{dataset_name}/response/{eval_source}.jsonl'
             )
             dataset.load_test_path = os.path.join(response_path, subdir, f'{eval_source}.jsonl')
-            if dataset_name == 'BioGeneration':
-                dataset.response_sample_size = 3
-            generate_evaluation_responses(dataset, f'../output2/{dataset_name}/model/{preference_name}/{subdir}')
-            if visualize:
-                with open(dataset.load_test_path[:-1], 'w', encoding='utf-8') as file:
-                    json.dump(dataset.test_dataset, file, indent=4)
         else:
             dataset = load_dataset(
                 dataset_name=dataset_name,
                 model_name='',
                 load_test_path=os.path.join(response_path, subdir, f'{eval_source}.jsonl')
             )
-        correctness, accuracy, ece = calculate_metrics(dataset)
-        metrics[subdir + '_correctness'] = correctness
-        metrics[subdir + '_accuracy'] = accuracy
-        metrics[subdir + '_ece'] = ece
-    os.makedirs(f'../output2/{dataset_name}/metric/{preference_name}/', exist_ok=True)
-    with open(f'../output2/{dataset_name}/metric/{preference_name}/{eval_source}.jsonl', 'w', encoding='utf-8') as file:
-        json.dump(metrics, file, indent=4)
+        # TODO: Warning: manually change some parameters
+        if dataset_name == 'BioGeneration':
+            dataset.response_sample_size = 3
+        elif dataset_name == 'NLGraph_SP':
+            if eval_source == 'homogeneous':
+                dataset.extract_instruction_name = 'shortest_path_extract'
+                dataset.extract_pattern = r'The total weight is (\d+)'
+            elif eval_source == 'indomain':
+                dataset.extract_instruction_name = 'maximum_flow_extract'
+                dataset.extract_pattern = r'The maximum flow is (\d+)'
+
+        if not (load_from_exist and 'responses' in dataset.test_dataset[0] and (
+                'extracted_answers' in dataset.test_dataset[0] or 'factscore' in dataset.test_dataset[0])):
+            generate_evaluation_responses(dataset, f'../output2/{dataset_name}/model/{preference_name}/{subdir}')
+        if visualize:
+            with open(dataset.load_test_path[:-1], 'w', encoding='utf-8') as file:
+                json.dump(dataset.test_dataset, file, indent=4)
 
 
-def evaluate_original(dataset_name, eval_source, load_from_exist=True):
-    if load_from_exist and os.path.exists(f'../output2/{dataset_name}/response/original/{eval_source}.jsonl'):
-        return
-    dataset = load_dataset(
-        dataset_name,
-        'llama-3',
-        load_test_path=f'../output2/{dataset_name}/response/{eval_source}.jsonl'
-    )
-    dataset.load_test_path = f'../output2/{dataset_name}/response/original/{eval_source}.jsonl'
-    generate_evaluation_responses(dataset, peft_dir=None)
-    correctness, accuracy, ece = calculate_metrics(dataset)
+def evaluate_original(dataset_name, eval_source, load_from_exist=True, visualize=True):
+    if not(load_from_exist and os.path.exists(f'../output2/{dataset_name}/response/original/{eval_source}.jsonl')):
+        dataset = load_dataset(
+            dataset_name,
+            'llama-3',
+            load_test_path=f'../output2/{dataset_name}/response/{eval_source}.jsonl'
+        )
+        dataset.load_test_path = f'../output2/{dataset_name}/response/original/{eval_source}.jsonl'
+    else:
+        dataset = load_dataset(
+            dataset_name,
+            'llama-3',
+            load_test_path=f'../output2/{dataset_name}/response/original/{eval_source}.jsonl'
+        )
+    if dataset_name == 'BioGeneration':
+        dataset.response_sample_size = 3
+    elif dataset_name == 'NLGraph_SP':
+        if eval_source == 'homogeneous':
+            dataset.extract_instruction_name = 'shortest_path_extract'
+            dataset.extract_pattern = r'The total weight is (\d+)'
+        elif eval_source == 'indomain':
+            dataset.extract_instruction_name = 'maximum_flow_extract'
+            dataset.extract_pattern = r'The maximum flow is (\d+)'
+    if not (load_from_exist and 'responses' in dataset.test_dataset[0] and (
+            'extracted_answers' in dataset.test_dataset[0] or 'factscore' in dataset.test_dataset[0])):
+        generate_evaluation_responses(dataset, peft_dir=None)
+    if visualize:
+        with open(dataset.load_test_path[:-1], 'w', encoding='utf-8') as file:
+            json.dump(dataset.test_dataset, file, indent=4)
+    _, correctness, accuracy, ece = calculate_metrics(dataset)
     metrics = {
-        'correctness': correctness,
+        'wrong_correctness': correctness,
         'accuracy': accuracy,
         'ece': ece
     }
+    os.makedirs(f'../output2/{dataset_name}/metric/original/', exist_ok=True)
     with open(f'../output2/{dataset_name}/metric/original/{eval_source}.jsonl', 'w', encoding='utf-8') as file:
         json.dump(metrics, file)
 
@@ -216,17 +262,18 @@ if __name__ == '__main__':
     parser.add_argument('--preference_source', type=str, default='all',
                         help='Source where preferences are collected: all, self')
     parser.add_argument('--eval_source', type=str, default='homogeneous',
-                        help='Source where fine-tuned model will be evaluated: homogeneous')
-    parser.add_argument('--dataset_name', type=str, default='KnowledgeCrosswords',
+                        help='Source where fine-tuned model will be evaluated: homogeneous, indomain')
+    parser.add_argument('--dataset_name', type=str, default='BioGeneration',
                         help='Name of the dataset: KnowledgeCrosswords, BioGeneration, CommonSense, NLGraph_SP')
     parser.add_argument('--eval_model_name', type=str, default='gpt-4', help='Name of the evaluation model: gpt-4')
-    parser.add_argument('--preference_type', type=str, default='oracle', help='Type of preference: oracle, direct, score')
+    parser.add_argument('--preference_type', type=str, default='oracle',
+                        help='Type of preference: oracle, direct, score, row, row_oracle, row_direct, row_score')
     parser.add_argument('--trainer_name', type=str, default='dpo', help='Name of the trainer: dpo')
     parser.add_argument('--top_p', type=float, default=0.5, help='Top-p value: 0.5, 0.1')
     parser.add_argument('--filtered', type=bool, default=True,
                         help='Boolean flag to indicate if filtering is applied: True')
     parser.add_argument('--load_from_exist', type=bool, default=True)
-    parser.add_argument('--eval_strategy', type=str, default='latest',
+    parser.add_argument('--eval_strategy', type=str, default='best_5',
                         help='how many configs to use for evaluation: all, latest, best_n (n is int)')
 
     args = parser.parse_args()

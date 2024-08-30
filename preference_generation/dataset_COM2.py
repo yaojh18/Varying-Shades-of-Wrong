@@ -64,16 +64,18 @@ if __name__ == '__main__':
     parser.add_argument('--extract_instruction_name', type=str, default='multi_choice_extract', help='Name of the instruction for extracting answers')
     parser.add_argument('--dataset_sample_size', type=int, default=625, help='Dataset sample size')
     parser.add_argument('--response_sample_size', type=int, default=10, help='Response sample size')
-    parser.add_argument('--load_from_exist', type=bool, default=True, help='Load from existing dataset or not')
+    parser.add_argument('--load_from_exist', type=bool, default=False, help='Load from existing dataset or not')
 
     args = parser.parse_args()
     com2_dataset = COM2(
         dataset_name=args.dataset_name,
         model_name=args.model_name,
+        instruction_name=args.instruction_name,
+        extract_instruction_name=args.extract_instruction_name,
         dataset_sample_size=args.dataset_sample_size,
         response_sample_size=args.response_sample_size,
         load_from_exist=args.load_from_exist
     )
-    com2_dataset.generate_answer(instruction_name=args.instruction_name)
-    com2_dataset.process_answer(instruction_name=args.instruction_name, extract_instruction_name=args.extract_instruction_name)
+    com2_dataset.generate_answer()
+    com2_dataset.process_answer()
     com2_dataset.save_dataset()

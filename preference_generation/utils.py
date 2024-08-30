@@ -36,13 +36,24 @@ class RawPreferenceDataset:
     output_name: str = ''
     split_ratio: float = 0.8
 
-    def __init__(self, dataset_name, model_name, dataset_sample_size=-1, response_sample_size=10, load_from_exist=False, load_test_path=None):
+    def __init__(self,
+                 dataset_name,
+                 model_name,
+                 instruction_name,
+                 extract_instruction_name,
+                 dataset_sample_size=-1,
+                 response_sample_size=10,
+                 load_from_exist=False,
+                 load_test_path=None
+                 ):
         random.seed(42)
         self.dataset = []
-        self.dataset_sample_size = dataset_sample_size
-        self.response_sample_size = response_sample_size
         self.dataset_name = dataset_name
         self.model_name = model_name
+        self.instruction_name = instruction_name
+        self.extract_instruction_name = extract_instruction_name
+        self.dataset_sample_size = dataset_sample_size
+        self.response_sample_size = response_sample_size
         self.load_test_path = load_test_path
         if self.output_name == '':
             self.output_name = self.dataset_name
@@ -77,8 +88,8 @@ class RawPreferenceDataset:
         self.train_dataset = list(self.train_dataset)
         self.test_dataset = list(self.test_dataset)
 
-    def generate_answer(self, instruction_name, split='train', key=None, peft_dir=None):
-        with open(f'../instruction/{instruction_name}.txt', encoding='utf-8') as f:
+    def generate_answer(self, split='train', key=None, peft_dir=None):
+        with open(f'../instruction/{self.instruction_name}.txt', encoding='utf-8') as f:
             instruction = ''.join(f.readlines())
         queries = []
         for data in self.train_dataset if split == 'train' else self.test_dataset:
@@ -107,10 +118,10 @@ class RawPreferenceDataset:
             data[log_probs_name] = log_probs[i * self.response_sample_size: i * self.response_sample_size + self.response_sample_size]
             data[responses_name] = responses[i * self.response_sample_size: i * self.response_sample_size + self.response_sample_size]
 
-    def process_answer(self, instruction_name, extract_instruction_name, split='train', key=None, peft_dir=None):
-        with open(f'../instruction/{instruction_name}.txt', encoding='utf-8') as f:
+    def process_answer(self, split='train', key=None, peft_dir=None):
+        with open(f'../instruction/{self.instruction_name}.txt', encoding='utf-8') as f:
             instruction = ''.join(f.readlines())
-        with open(f'../instruction/{extract_instruction_name}.txt', encoding='utf-8') as f:
+        with open(f'../instruction/{self.extract_instruction_name}.txt', encoding='utf-8') as f:
             extract_instruction = ''.join(f.readlines())
         queries = []
         responses_name = 'responses' if key is None else key + '_responses'
@@ -171,6 +182,12 @@ class RawPreferenceDataset:
                 with open(f'../output/{self.model_name}/{self.output_name}_test.jsonl', 'w', encoding='utf-8') as file:
                     for data in self.test_dataset:
                         file.write(json.dumps(data) + '\n')
+
+    def find(self, query, split='train'):
+        for data in self.train_dataset if split == 'train' else self.test_dataset:
+            if data['query'] == query:
+                return data
+        return None
 
 
 def query_openai(prompt, index, model_name, mode):

@@ -74,8 +74,8 @@ class KnowledgeCrosswords(RawPreferenceDataset):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Generate and process answers for KnowledgeCrosswords dataset')
-    parser.add_argument('--dataset_name', type=str, default='MC_easy', help='Name of the dataset')
-    parser.add_argument('--model_name', type=str, default='llama-3', help='Name of the model')
+    parser.add_argument('--dataset_name', type=str, default='KC', help='Name of the dataset')
+    parser.add_argument('--model_name', type=str, default='gpt-3.5', help='Name of the model')
     parser.add_argument('--instruction_name', type=str, default='CoT', help='Name of the instruction for generating answers')
     parser.add_argument('--extract_instruction_name', type=str, default='multi_choice_extract', help='Name of the instruction for extracting answers')
     parser.add_argument('--knowledge', type=bool, default=False, help='Include knowledge or not')
@@ -89,11 +89,13 @@ if __name__ == '__main__':
         dataset_name=args.dataset_name,
         model_name=args.model_name,
         knowledge=args.knowledge,
+        instruction_name=args.instruction_name,
+        extract_instruction_name=args.extract_instruction_name,
         response_sample_size=args.response_sample_size,
         dataset_sample_size=args.dataset_sample_size,
         load_from_exist=args.load_from_exist
     )
 
-    kc_dataset.generate_answer(instruction_name=args.instruction_name)
-    kc_dataset.process_answer(instruction_name=args.instruction_name, extract_instruction_name=args.extract_instruction_name)
+    kc_dataset.generate_answer()
+    kc_dataset.process_answer()
     kc_dataset.save_dataset()

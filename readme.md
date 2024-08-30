@@ -1,3 +1,22 @@
+## 8 / 30
+After finishing main part 2 experiment, there are 3 analysis experiments need to run:
+1. In-domain experiment: Unzip necessary evaluation data under `./output2`. Run `python3 evaluate.py` with parameter `--eval_source "indomain"`. See `./indomain.sh` for example. 
+   + The number of total experiment = 8 setups (all_direct_filtered_gpt-4_dpo, all_oracle_dpo, all_score_0.1_gpt-4_dpo, all_score_0.5_gpt-4_dpo, self_direct_filtered_gpt-4_dpo, self_oracle_dpo, self_score_0.1_gpt-4_dpo, self_score_0.5_gpt-4_dpo) * 2 datasets (CommonSense, NLGraph_SP) = 16
+2. Different POs experiment: Run `python3 finetune.py` with parameter `--trainer_name "ipo, sppo, simpo, orpo"`. Also, remember to run coresponding evaluation experiments. Experiment will only run on `NLGraph_SP` dataset. If you want to apply grid search and, please run `python3 grid_search.py` instead of `python3 finetune.py`, but it is recommended not to tune many hyperparameters on this experiment since it's only an analysis experiment. See `./po.sh` for example. 
+   + The number of total experiment = 8 setups (all_direct_filtered_gpt-4, all_oracle, all_score_0.1_gpt-4, all_score_0.5_gpt-4, self_direct_filtered_gpt-4, self_oracle, self_score_0.1_gpt-4, self_score_0.5_gpt-4) * 1 datasets (NLGraph_SP) * 4 POs (ipo, sppo, simpo, orpo) = 32
+3. Right over wrong experiment: Run `python3 finetune.py` with parameter `--preference_type "row, row_oracle, row_direct, row_score"`. Also, remember to run coresponding evaluation experiments. Experiment will only run on all datasets. If you want to apply grid search and, please run `python3 grid_search.py` instead of `python3 finetune.py`, but it is recommended not to tune many hyperparameters on this experiment since it's only an analysis experiment. See `./row.sh` for example. 
+   + The number of total experiment = 10 setups (all_row_dpo, all_row_direct_filtered_gpt-4_dpo, all_row_oracle_dpo, all_row_score_0.1_gpt-4_dpo, all_row_score_0.5_gpt-4_dpo, self_row_dpo, self_row_direct_filtered_gpt-4_dpo, self_row_oracle_dpo, self_row_score_0.1_gpt-4_dpo, self_row_score_0.5_gpt-4_dpo) * 4 datasets (all) = 40
+
+## 8 / 25
+1. Implement the different POs. Options include: dpo, rso, ipo, sppo, cpo, simpo, orpo, which are all famous or baselines included in simpo's paper. Make sure you run `pip install -r requirements.txt` to update environment first.
+2. Rewrite FactScore lib. Make sure you run `pip install -r requirements.txt` to update environment first. To use factscore, you need to install the required corpus manually. Follow the steps:
+   ```bash
+   python -m spacy download en_core_web_sm
+   python
+   >>> import nltk
+   >>> nltk.download('punkt_tab')
+   ```
+
 ## 8 / 23
 1. Unzip required preference data `./output2` under root dir. Remember to clean the original `./output2` folder since `load_from_exsist` is set to be true for `./preference_optimization/finetune.py` and `./preference_optimization/evaluate.py`.
 2. The IO system I implemented doesn't support jsonl file with indent. Thus, I save a json file with indent under the same path, which is used to visualize data of the corresponding jsonl file with the same name.
@@ -11,8 +30,9 @@
     ```bash
     conda create --name wow python=3.10
     conda activate wow
-    conda install pytorch==2.3.0 torchvision==0.18.0 torchaudio==2.3.0 pytorch-cuda=11.8 -c pytorch -c nvidia
+    conda install pytorch==2.3.0 torchvision==0.18.0 torchaudio==2.3.0 pytorch-cuda=12.1 -c pytorch -c nvidia
     pip install -r requirements.txt
+   
     ```
    Please install pytorch with the correct cuda version (11.8 or 12.1)
 2. Unzip required preference data under root dir.

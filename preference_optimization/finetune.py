@@ -6,9 +6,8 @@ import torch
 import argparse
 from datetime import datetime
 from abc import abstractmethod
-from datasets import Dataset
-from trl import DPOTrainer
-from transformers import TrainingArguments
+from datasets import Dataset, concatenate_datasets
+from trl import DPOTrainer, DPOConfig, CPOTrainer, ORPOTrainer, CPOConfig, ORPOConfig
 from transformers import BitsAndBytesConfig, AutoTokenizer, AutoModelForCausalLM
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from unsloth import FastLanguageModel
@@ -66,21 +65,24 @@ class PreferenceDatasetCollector:
         else:
             return data['correctness'][idx][data['extracted answers'][idx]]
 
+    def is_collected(self, i, j, data):
+        return not self.is_correct(i, data) and not self.is_correct(j, data) and not self.is_same_label(i, j, data)
+
+    def is_valid(self, i, j, data):
+        return ('extracted answers' in data and data['extracted answers'][i] is not None and
+                data['extracted answers'][j] is not None) or ('factscore' in data and data['factscore'][i] is not None and data['factscore'][j] is not None)
+
 
 class DirectCompareDatasetCollector(PreferenceDatasetCollector):
     def __init__(self, eval_model_name='gpt-4', filtered=True, **kwargs):
         self.eval_model_name = eval_model_name
         self.filtered = filtered
-        self.output_name = 'direct' + ('_filtered_' if filtered else '_') + eval_model_name
+        self.output_name = ('_filtered_' if filtered else '_') + eval_model_name
         super().__init__(**kwargs)
 
     def filter_train_dataset(self):
         for model_name in self.model_name_list:
-            if not os.path.exists(f'../output/pairwise/{model_name}/{self.eval_model_name}/{dataset_name_translator[self.dataset_name]}.jsonl'):
-                raise FileNotFoundError(
-                    f'../output/pairwise/{model_name}/{self.eval_model_name}/{dataset_name_translator[self.dataset_name]}.jsonl')
-            with open(f'../output/pairwise/{model_name}/{self.eval_model_name}/{dataset_name_translator[self.dataset_name]}.jsonl', 'r',
-                      encoding='utf-8') as file:
+            with open(f'../output/pairwise/{model_name}/{self.eval_model_name}/{dataset_name_translator[self.dataset_name]}.jsonl', 'r', encoding='utf-8') as file:
                 for line in file:
                     data = json.loads(line.strip())
                     if not self.filtered:
@@ -110,36 +112,38 @@ class ScoreCompareDatasetCollector(PreferenceDatasetCollector):
 
     def __init__(self, eval_model_name='gpt-4', reward_name='reward_5', top_p=0.5, **kwargs):
         self.eval_model_name = eval_model_name
-        self.reward_name = reward_name
+        self.reward_name = self.eval_model_name + '_' + reward_name
         self.top_p = top_p
-        self.output_name = 'score_' + str(top_p) + '_' + eval_model_name
+        self.output_name = '_' + str(top_p) + '_' + eval_model_name
         super().__init__(**kwargs)
 
+    def is_valid(self, i, j, data):
+        return data[self.reward_name][i] is not None and data[self.reward_name][j] is not None and \
+            (('extracted answers' in data and data['extracted answers'][i] is not None and data['extracted answers'][j] is not None) or
+             ('factscore' in data and data['factscore'][i] is not None and data['factscore'][j] is not None))
+
     def filter_train_dataset(self):
-        reward_name = self.eval_model_name + '_' + self.reward_name
         for model_name in self.model_name_list:
             dataset = load_dataset(dataset_name_translator[self.dataset_name], model_name)
             unfiltered_train_dataset = []
             for data in dataset.train_dataset:
                 for i in range(len(data['responses'])):
                     for j in range(i + 1, len(data['responses'])):
-                        if data[reward_name][i] is not None and data[reward_name][j] is not None and \
-                                (('extracted answers' in data and data['extracted answers'][i] is not None and data['extracted answers'][j] is not None) or
-                                 ('factscore' in data and data['factscore'][i] is not None and data['factscore'][j] is not None)):
+                        if self.is_valid(i, j, data):
                             if not self.is_correct(i, data) and not self.is_correct(j, data) and not self.is_same_label(i, j, data):
-                                if data[reward_name][i] > data[reward_name][j]:
+                                if data[self.reward_name][i] > data[self.reward_name][j]:
                                     unfiltered_train_dataset.append({
                                         'prompt': data['query'],
                                         'chosen': data['responses'][i],
                                         'rejected': data['responses'][j],
-                                        'gap': data[reward_name][i] - data[reward_name][j]
+                                        'gap': data[self.reward_name][i] - data[self.reward_name][j]
                                     })
                                 else:
                                     unfiltered_train_dataset.append({
                                         'prompt': data['query'],
                                         'chosen': data['responses'][j],
                                         'rejected': data['responses'][i],
-                                        'gap': data[reward_name][j] - data[reward_name][i]
+                                        'gap': data[self.reward_name][j] - data[self.reward_name][i]
                                     })
             sorted_dataset = sorted(unfiltered_train_dataset, key=lambda x: x['gap'], reverse=True)
             sorted_dataset = sorted_dataset[: round(len(sorted_dataset) * self.top_p)]
@@ -150,9 +154,16 @@ class ScoreCompareDatasetCollector(PreferenceDatasetCollector):
 
 
 class OracleDatasetCollector(PreferenceDatasetCollector):
-    def __init__(self, **kwargs):
-        self.output_name = 'oracle'
+    def __init__(self, preference_filter, **kwargs):
+        self.output_name = ''
+        self.preference_filter = preference_filter
         super().__init__(**kwargs)
+
+    def is_collected(self, i, j, data):
+        if self.preference_filter == 'wow':
+            return not self.is_correct(i, data) and not self.is_correct(j, data) and not self.is_same_label(i, j, data)
+        else:
+            return (self.is_correct(i, data) ^ self.is_correct(j, data)) and not self.is_same_label(i, j, data)
 
     def filter_train_dataset(self):
         for model_name in self.model_name_list:
@@ -160,9 +171,8 @@ class OracleDatasetCollector(PreferenceDatasetCollector):
             for data in dataset.train_dataset:
                 for i in range(len(data['responses'])):
                     for j in range(i + 1, len(data['responses'])):
-                        if ('extracted answers' in data and data['extracted answers'][i] is not None and data['extracted answers'][j] is not None) or \
-                                ('factscore' in data and data['factscore'][i] is not None and data['factscore'][j] is not None):
-                            if not self.is_correct(i, data) and not self.is_correct(j, data) and not self.is_same_label(i, j, data):
+                        if self.is_valid(i, j, data):
+                            if self.is_collected(i, j, data):
                                 if self.get_correctness(i, data) > self.get_correctness(j, data):
                                     self.train_dataset_dict['prompt'].append(data['query'])
                                     self.train_dataset_dict['chosen'].append(data['responses'][i])
@@ -189,44 +199,70 @@ def preference_optimization(
         beta=0.1,
         warmup_ratio=0.1
 ):
-    if preference_type == 'direct':
+    if preference_type.find('direct') >= 0:
         dataset_collector = DirectCompareDatasetCollector(
             preference_source=preference_source,
-            eval_model_name=eval_model_name,
             dataset_name=dataset_name,
+            eval_model_name=eval_model_name,
             filtered=filtered
         )
-    elif preference_type == 'score':
+    elif preference_type.find('score') >= 0:
         dataset_collector = ScoreCompareDatasetCollector(
             preference_source=preference_source,
-            eval_model_name=eval_model_name,
             dataset_name=dataset_name,
+            eval_model_name=eval_model_name,
             top_p=top_p
         )
-    elif preference_type == 'oracle':
+    elif preference_type.find('oracle') >= 0:
         dataset_collector = OracleDatasetCollector(
             preference_source=preference_source,
+            preference_filter='wow',
             dataset_name=dataset_name
         )
     else:
-        raise NotImplementedError
+        dataset_collector = None
+    if preference_type.find('row') >= 0:
+        row_dataset_collector = OracleDatasetCollector(
+            preference_source=preference_source,
+            preference_filter='row',
+            dataset_name=dataset_name
+        )
+    else:
+        row_dataset_collector = None
+
     grid_search_name = f"lr={learning_rate:.1e}_scheduler={lr_scheduler_type}_decay={weight_decay:.1e}_epochs={num_train_epochs}_beta={beta:.1e}_warmup={warmup_ratio:.1e}_timestamp={datetime.now().strftime('%Y%m%d-%H%M%S')}"
-    output_name = f"{preference_source}_{dataset_collector.output_name}_{trainer_name}"
+    output_name = f"{preference_source}_{preference_type}{dataset_collector.output_name if dataset_collector is not None else ''}_{trainer_name}"
     if load_from_exist:
         os.makedirs(f'../output2/{dataset_name}/model/{output_name}/', exist_ok=True)
         parent_path = f'../output2/{dataset_name}/model/{output_name}/'
         grid_search_subdirs = [name for name in os.listdir(parent_path) if os.path.isdir(os.path.join(parent_path, name))]
         for subdir in grid_search_subdirs:
             if subdir.find(grid_search_name.split('_timestamp=')[0]) >= 0 \
-                    and os.path.exists(os.path.join(parent_path, subdir, 'log.json')) \
+                    and os.path.exists(os.path.join(parent_path, subdir, 'log_all.json')) \
                     and os.path.exists(os.path.join(parent_path, subdir, 'adapter_model.safetensors')):
                 return
-    dataset = dataset_collector.get_dataset()
     random.seed(42)
-    select_idxs = random.sample(range(len(dataset)), min(4000, len(dataset)))
-    dataset = dataset.select(select_idxs)
-    dataset = dataset.train_test_split(test_size=0.1)
+    if dataset_collector is not None and row_dataset_collector is None:
+        dataset = dataset_collector.get_dataset()
+        select_idxs = random.sample(range(len(dataset)), min(4000, len(dataset)))
+        dataset = dataset.select(select_idxs)
+    elif dataset_collector is None and row_dataset_collector is not None:
+        dataset = row_dataset_collector.get_dataset()
+        select_idxs = random.sample(range(len(dataset)), min(4000, len(dataset)))
+        dataset = dataset.select(select_idxs)
+    elif dataset_collector is not None and row_dataset_collector is not None:
+        dataset = dataset_collector.get_dataset()
+        row_dataset = row_dataset_collector.get_dataset()
+        select_idxs = random.sample(range(len(dataset)), min(2000, len(dataset), len(row_dataset)))
+        dataset = dataset.select(select_idxs)
+        select_idxs = random.sample(range(len(row_dataset)), min(2000, len(dataset), len(row_dataset)))
+        row_dataset = row_dataset.select(select_idxs)
+        dataset = concatenate_datasets([dataset, row_dataset])
+        dataset = dataset.shuffle(seed=42)
+    else:
+        raise NotImplementedError
 
+    dataset = dataset.train_test_split(test_size=0.1)
     # bnb_config = BitsAndBytesConfig(
     #     load_in_4bit=True,
     #     bnb_4bit_quant_type="nf4",
@@ -288,38 +324,69 @@ def preference_optimization(
     dataset = dataset.map(format_chat_template)
 
     # TODO: Change training arguments here
-    training_args = TrainingArguments(
-        gradient_accumulation_steps=1,
-        per_device_train_batch_size=1,
-        # do_eval=False,
-        do_eval=True,
-        per_device_eval_batch_size=1,
-        eval_strategy='steps',
-        eval_steps=1000,
-        save_strategy='steps',
-        save_steps=1000,
-        logging_strategy='steps',
-        logging_steps=200,
-        metric_for_best_model="eval_loss",
-        greater_is_better=False,
-        save_total_limit=3,
-        load_best_model_at_end=True,
-        fp16=not torch.cuda.is_bf16_supported(),
-        bf16=torch.cuda.is_bf16_supported(),
-        output_dir=f'../output2/{dataset_name}/model/{output_name}/{grid_search_name}/',
-        learning_rate=learning_rate,
-        lr_scheduler_type=lr_scheduler_type,
-        weight_decay=weight_decay,
-        num_train_epochs=num_train_epochs,
-        warmup_ratio=warmup_ratio,
-    )
-    if trainer_name == 'dpo':
+    args_dict = {
+        "gradient_accumulation_steps": 1,
+        "per_device_train_batch_size": 1,
+        # "do_eval": False,
+        "do_eval": True,
+        "per_device_eval_batch_size": 1,
+        "eval_strategy": 'steps',
+        "eval_steps": 1000,
+        "save_strategy": 'steps',
+        "save_steps": 1000,
+        "logging_strategy": 'steps',
+        "logging_steps": 200,
+        "metric_for_best_model": "eval_loss",
+        "greater_is_better": False,
+        "save_total_limit": 3,
+        "load_best_model_at_end": True,
+        "fp16": not torch.cuda.is_bf16_supported(),
+        "bf16": torch.cuda.is_bf16_supported(),
+        "output_dir": f'../output2/{dataset_name}/model/{output_name}/{grid_search_name}/',
+        "max_length": 1536,
+        "max_prompt_length": 512,
+        "learning_rate": learning_rate,
+        "lr_scheduler_type": lr_scheduler_type,
+        "weight_decay": weight_decay,
+        "num_train_epochs": num_train_epochs,
+        "warmup_ratio": warmup_ratio,
+    }
+    if trainer_name in ('dpo', 'rso', 'ipo', 'sppo'):
+        trainer_map = {
+            'dpo': 'sigmoid',
+            'rso': 'hinge',
+            'ipo': 'ipo',
+            'sppo': 'sppo_hard'
+        }
+        dpo_config = DPOConfig(loss_type=trainer_map[trainer_name], beta=beta, **args_dict)
         trainer = DPOTrainer(
             model,
-            beta=beta,
-            args=training_args,
-            max_length=1536,
-            max_prompt_length=512,
+            args=dpo_config,
+            train_dataset=dataset['train'],
+            eval_dataset=dataset['test'],
+            tokenizer=tokenizer,
+            # model_adapter_name="default",
+            # ref_adapter_name="reference",
+        )
+    elif trainer_name in ('cpo', 'simpo'):
+        cpo_config = CPOConfig(**args_dict)
+        if trainer_name == 'simpo':
+            cpo_config.loss_type = 'simpo'
+            cpo_config.cpo_alpha = 0.0
+        trainer = CPOTrainer(
+            model,
+            args=cpo_config,
+            train_dataset=dataset['train'],
+            eval_dataset=dataset['test'],
+            tokenizer=tokenizer,
+            # model_adapter_name="default",
+            # ref_adapter_name="reference",
+        )
+    elif trainer_name == 'orpo':
+        orpo_config = ORPOConfig(**args_dict)
+        trainer = ORPOTrainer(
+            model,
+            args=orpo_config,
             train_dataset=dataset['train'],
             eval_dataset=dataset['test'],
             tokenizer=tokenizer,
@@ -344,35 +411,9 @@ def preference_optimization(
         'val_loss': val_losses,
         'best_val_loss': min(val_losses) if len(val_losses) > 0 else 1.0
     }
-    with open(f'../output2/{dataset_name}/model/{output_name}/{grid_search_name}/log.json', 'w', encoding='utf-8') as file:
+    with open(f'../output2/{dataset_name}/model/{output_name}/{grid_search_name}/log_all.json', 'w', encoding='utf-8') as file:
         json.dump(out_json, file)
     torch.cuda.empty_cache()
-
-
-def grid_search(
-        learning_rate_range,
-        lr_scheduler_type_range,
-        weight_decay_range,
-        num_train_epochs_range,
-        beta_range,
-        warmup_ratio_range,
-        **kwargs
-):
-    for learning_rate in learning_rate_range:
-        for lr_scheduler_type in lr_scheduler_type_range:
-            for weight_decay in weight_decay_range:
-                for num_train_epochs in num_train_epochs_range:
-                    for beta in beta_range:
-                        for warmup_ratio in warmup_ratio_range:
-                            preference_optimization(
-                                learning_rate=learning_rate,
-                                lr_scheduler_type=lr_scheduler_type,
-                                weight_decay=weight_decay,
-                                num_train_epochs=num_train_epochs,
-                                beta=beta,
-                                warmup_ratio=warmup_ratio,
-                                **kwargs
-                            )
 
 
 if __name__ == '__main__':
@@ -383,27 +424,13 @@ if __name__ == '__main__':
                         help='Name of the dataset: KnowledgeCrosswords, BioGeneration, CommonSense, NLGraph_SP')
     parser.add_argument('--eval_model_name', type=str, default='gpt-4', help='Name of the evaluation model: gpt-4')
     parser.add_argument('--preference_type', type=str, default='oracle',
-                        help='Type of preference: oracle, direct, score.')
-    parser.add_argument('--trainer_name', type=str, default='dpo', help='Name of the trainer: dpo')
+                        help='Type of preference: oracle, direct, score, row, row_oracle, row_direct, row_score.')
+    parser.add_argument('--trainer_name', type=str, default='dpo',
+                        help='Name of the trainer: dpo, rso, ipo, sppo, cpo, simpo, orpo')
     parser.add_argument('--top_p', type=float, default=0.5, help='Top-p value: 0.5, 0.1')
     parser.add_argument('--filtered', type=bool, default=True,
                         help='Boolean flag to indicate if filtering is applied: True')
     parser.add_argument('--load_from_exist', type=bool, default=True)
-
-    # training arguments
-    parser.add_argument('--learning_rate_range', type=float, nargs='+', default=[1e-4, 5e-5, 1e-5],
-                        help='Range of learning rates to explore: e.g., 1e-4 5e-5 1e-5')
-    parser.add_argument('--lr_scheduler_type_range', type=str, nargs='+',
-                        default=['linear', 'cosine', 'cosine_with_restarts', 'reduce_lr_on_plateau'],
-                        help='Range of learning rate scheduler types: e.g., linear_with_warmup cosine_with_warmup')
-    parser.add_argument('--weight_decay_range', type=float, nargs='+', default=[0, 1e-5, 1e-3],
-                        help='Range of weight decay values: e.g., 0 1e-5 1e-3')
-    parser.add_argument('--num_train_epochs_range', type=int, nargs='+', default=[1, 3, 5],
-                        help='Range of number of training epochs: e.g., 1 3 5')
-    parser.add_argument('--beta_range', type=float, nargs='+', default=[0.1],
-                        help='Range of beta values: e.g., 0.1')
-    parser.add_argument('--warmup_ratio_range', type=float, nargs='+', default=[0.1],
-                        help='Range of warmup ratio: e.g., 0.1')
     args = parser.parse_args()
 
-    grid_search(**vars(args))
+    preference_optimization(**vars(args))

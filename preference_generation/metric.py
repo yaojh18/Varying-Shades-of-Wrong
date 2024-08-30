@@ -85,6 +85,8 @@ def load_dataset(dataset_name, model_name, load_test_path=None):
         dataset = KnowledgeCrosswords(
             dataset_name=dataset_name,
             model_name=model_name,
+            instruction_name='CoT',
+            extract_instruction_name='multi_choice_extract',
             knowledge=False,
             load_from_exist=True,
             load_test_path=load_test_path
@@ -93,6 +95,8 @@ def load_dataset(dataset_name, model_name, load_test_path=None):
         dataset = NLGraph(
             dataset_name=dataset_name,
             model_name=model_name,
+            instruction_name='CoT',
+            extract_instruction_name='nlgraph_extract',
             load_from_exist=True,
             load_test_path=load_test_path
         )
@@ -100,6 +104,8 @@ def load_dataset(dataset_name, model_name, load_test_path=None):
         dataset = BioGeneration(
             dataset_name=dataset_name,
             model_name=model_name,
+            instruction_name='default',
+            extract_instruction_name='',
             load_from_exist=True,
             load_test_path=load_test_path
         )
@@ -107,6 +113,8 @@ def load_dataset(dataset_name, model_name, load_test_path=None):
         dataset = MMLUPro(
             dataset_name=dataset_name,
             model_name=model_name,
+            instruction_name='CoT',
+            extract_instruction_name='multi_choice_extract',
             load_from_exist=True,
             load_test_path=load_test_path
         )
@@ -114,6 +122,8 @@ def load_dataset(dataset_name, model_name, load_test_path=None):
         dataset = COM2(
             dataset_name=dataset_name,
             model_name=model_name,
+            instruction_name='CoT',
+            extract_instruction_name='multi_choice_extract',
             load_from_exist=True,
             load_test_path=load_test_path
         )
@@ -121,6 +131,8 @@ def load_dataset(dataset_name, model_name, load_test_path=None):
         dataset = ChessPuzzle(
             dataset_name=dataset_name,
             model_name=model_name,
+            instruction_name='CoT',
+            extract_instruction_name='multi_choice_extract',
             load_from_exist=True,
             load_test_path=load_test_path
         )
@@ -132,17 +144,18 @@ def load_dataset(dataset_name, model_name, load_test_path=None):
 def calculate_task_accuracy_and_wow_number(dataset_name, model_name):
     dataset = load_dataset(dataset_name, model_name)
     is_corrects = []
-    if dataset_name.find('NLGraph') >= 0:
-        for data in dataset.train_dataset:
+    confidence = []
+    for data in dataset.train_dataset:
+        confidence += [np.exp(-log_prob) for log_prob in data['log_probs']]
+        if dataset_name.find('NLGraph') >= 0:
             is_corrects += [int(data['correct_answer']) == e for e in data['extracted answers'] if e is not None]
-    elif dataset_name == 'BioGeneration':
-        for data in dataset.train_dataset:
-            is_corrects += [fs >= 0.9 for fs in data['factscore'] if fs is not None]
-    else:
-        for data in dataset.train_dataset:
+        elif dataset_name == 'BioGeneration':
+            is_corrects += [fs for fs in data['factscore'] if fs is not None]
+        else:
             correct_answer = max(data['correctness'][0])
             is_corrects += [c[e] == correct_answer for e, c in zip(data['extracted answers'], data['correctness']) if e is not None]
     print(f'Task accuracy is {sum(is_corrects) / len(dataset.train_dataset) / dataset.response_sample_size}')
+    print(f'Task confidence is {sum(confidence) / len(dataset.train_dataset) / dataset.response_sample_size}')
 
     if os.path.exists(f'../output/pairwise/{model_name}/gpt-4/{dataset_name}.jsonl'):
         with open(f'../output/pairwise/{model_name}/gpt-4/{dataset_name}.jsonl', 'r', encoding='utf-8') as file:

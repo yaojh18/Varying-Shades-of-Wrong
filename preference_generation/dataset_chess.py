@@ -72,7 +72,7 @@ class ChessPuzzle(RawPreferenceDataset):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Generate and save answers for ChessPuzzle dataset')
     parser.add_argument('--dataset_name', type=str, default='ChessPuzzle', help='Name of the dataset')
-    parser.add_argument('--model_name', type=str, default='llama-3', help='Name of the model')
+    parser.add_argument('--model_name', type=str, default='gpt-3.5', help='Name of the model')
     parser.add_argument('--instruction_name', type=str, default='CoT',
                         help='Name of the instruction for generating answers')
     parser.add_argument('--extract_instruction_name', type=str, default='multi_choice_extract',
@@ -85,10 +85,12 @@ if __name__ == '__main__':
     chess_dataset = ChessPuzzle(
         dataset_name=args.dataset_name,
         model_name=args.model_name,
+        instruction_name=args.instruction_name,
+        extract_instruction_name=args.extract_instruction_name,
         dataset_sample_size=args.dataset_sample_size,
         response_sample_size=args.response_sample_size,
         load_from_exist=args.load_from_exist
     )
-    chess_dataset.generate_answer(instruction_name=args.instruction_name)
-    chess_dataset.process_answer(instruction_name=args.instruction_name, extract_instruction_name=args.extract_instruction_name)
+    chess_dataset.generate_answer()
+    chess_dataset.process_answer()
     chess_dataset.save_dataset()
