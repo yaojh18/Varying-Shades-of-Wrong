@@ -22,7 +22,7 @@ class BioGeneration(RawPreferenceDataset):
             random.seed(42)
             self.dataset = random.sample(self.dataset, sample_size)
 
-    def process_answer(self, split='train', key=None):
+    def process_answer(self, split='train', key=None, peft_dir=None):
         from factscore.factscorer import FactScorer
         fs = FactScorer(
             openai_key=OPENAI_KEY,

@@ -20,7 +20,7 @@ def generate_evaluation_responses(dataset, peft_dir):
         dataset.save_dataset()
         torch.cuda.empty_cache()
     # process responses
-    if 'extracted_answers' in dataset.test_dataset[0] or 'factscore' in dataset.test_dataset[0]:
+    if 'extracted_answers' not in dataset.test_dataset[0] and 'factscore' not in dataset.test_dataset[0]:
         dataset.process_answer(split='test', peft_dir=peft_dir)
         dataset.save_dataset()
         torch.cuda.empty_cache()
@@ -167,16 +167,11 @@ def evaluate_grid_search(
         _, top_k = eval_strategy.split('_')
         top_k = int(top_k)
         val_losses = []
-        with open(f'../output2/{dataset_name}/model/log_all.json', 'r', encoding='utf-8') as log_file:
-            logs = json.load(log_file)
-        for subdir in grid_search_subdirs:
-            if subdir in logs[preference_name]:
-                val_losses.append((logs[preference_name][subdir]['best_val_loss'], subdir))
-        # for subdir in grid_search_subdirs:
-        #     with open(os.path.join(model_path, subdir, 'log_all.json'), 'r', encoding='utf-8') as log_file:
-        #         log_data = json.load(log_file)
-        #         best_val_loss = log_data['best_val_loss']
-        #         val_losses.append((best_val_loss, subdir))
+        for subdir in _grid_search_subdirs:
+            with open(os.path.join(model_path, subdir, 'log.json'), 'r', encoding='utf-8') as log_file:
+                log_data = json.load(log_file)
+                best_val_loss = log_data['best_val_loss']
+                val_losses.append((best_val_loss, subdir))
         top_k_subdirs = nlargest(top_k, val_losses, key=lambda x: x[0])
         grid_search_subdirs = [subdir[1] for subdir in top_k_subdirs]
 
@@ -263,7 +258,7 @@ if __name__ == '__main__':
                         help='Source where preferences are collected: all, self')
     parser.add_argument('--eval_source', type=str, default='homogeneous',
                         help='Source where fine-tuned model will be evaluated: homogeneous, indomain')
-    parser.add_argument('--dataset_name', type=str, default='BioGeneration',
+    parser.add_argument('--dataset_name', type=str, default='KnowledgeCrosswords',
                         help='Name of the dataset: KnowledgeCrosswords, BioGeneration, CommonSense, NLGraph_SP')
     parser.add_argument('--eval_model_name', type=str, default='gpt-4', help='Name of the evaluation model: gpt-4')
     parser.add_argument('--preference_type', type=str, default='oracle',
@@ -273,7 +268,7 @@ if __name__ == '__main__':
     parser.add_argument('--filtered', type=bool, default=True,
                         help='Boolean flag to indicate if filtering is applied: True')
     parser.add_argument('--load_from_exist', type=bool, default=True)
-    parser.add_argument('--eval_strategy', type=str, default='best_5',
+    parser.add_argument('--eval_strategy', type=str, default='latest',
                         help='how many configs to use for evaluation: all, latest, best_n (n is int)')
 
     args = parser.parse_args()
