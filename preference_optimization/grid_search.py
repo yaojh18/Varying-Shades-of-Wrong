@@ -49,7 +49,7 @@ if __name__ == '__main__':
                         help='Range of learning rates to explore: e.g., 1e-4 5e-5 1e-5')
     parser.add_argument('--lr_scheduler_type_range', type=str, nargs='+',
                         default=['linear', 'cosine', 'cosine_with_restarts', 'reduce_lr_on_plateau'],
-                        help='Range of learning rate scheduler types: e.g., linear_with_warmup cosine_with_warmup')
+                        help='Range of learning rate scheduler types: e.g. linear, cosine, cosine_with_restarts, reduce_lr_on_plateau')
     parser.add_argument('--weight_decay_range', type=float, nargs='+', default=[0, 1e-5, 1e-3],
                         help='Range of weight decay values: e.g., 0 1e-5 1e-3')
     parser.add_argument('--num_train_epochs_range', type=int, nargs='+', default=[1, 3, 5],
