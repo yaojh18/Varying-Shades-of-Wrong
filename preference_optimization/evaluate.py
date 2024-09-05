@@ -7,20 +7,21 @@ import networkx
 import numpy as np
 from datetime import datetime
 from heapq import nlargest
-from collections import defaultdict
 
 from preference_generation.metric import load_dataset
-from preference_optimization.utils import *
 
 
-def generate_evaluation_responses(dataset, peft_dir):
+def generate_evaluation_responses(dataset, peft_dir, load_from_exist=True):
     # generate responses
-    if 'responses' not in dataset.test_dataset[0]:
+    response_flag = all(['responses' in data for data in dataset.test_dataset])
+    extracted_answer_flag = all(['extracted_answers' in data for data in dataset.test_dataset])
+    factscore_flag = all(['factscore' in data for data in dataset.test_dataset])
+    if not load_from_exist or not response_flag:
         dataset.generate_answer(split='test', peft_dir=peft_dir)
         dataset.save_dataset()
         torch.cuda.empty_cache()
     # process responses
-    if 'extracted_answers' not in dataset.test_dataset[0] and 'factscore' not in dataset.test_dataset[0]:
+    if not load_from_exist or (not extracted_answer_flag and not factscore_flag):
         dataset.process_answer(split='test', peft_dir=peft_dir)
         dataset.save_dataset()
         torch.cuda.empty_cache()
@@ -148,6 +149,8 @@ def evaluate_grid_search(
     elif preference_type.find('score') >= 0:
         preference_name += '_' + str(top_p) + '_' + eval_model_name
     preference_name += '_' + trainer_name
+    # TODO: change to evaluate factscore
+    # model_path = f'../output2/{dataset_name}/response/{preference_name}/'
     model_path = f'../output2/{dataset_name}/model/{preference_name}/'
     _grid_search_subdirs = [name for name in os.listdir(model_path) if os.path.isdir(os.path.join(model_path, name))]
     grid_search_subdirs = []
@@ -167,6 +170,12 @@ def evaluate_grid_search(
         _, top_k = eval_strategy.split('_')
         top_k = int(top_k)
         val_losses = []
+        # TODO: change to evaluate factscore
+        # with open(f'../output2/{dataset_name}/model/log_all.json', 'r', encoding='utf-8') as log_file:
+        #     logs = json.load(log_file)
+        # for subdir in _grid_search_subdirs:
+        #     if subdir in logs[preference_name]:
+        #         val_losses.append((logs[preference_name][subdir]['best_val_loss'], subdir))
         for subdir in _grid_search_subdirs:
             with open(os.path.join(model_path, subdir, 'log.json'), 'r', encoding='utf-8') as log_file:
                 log_data = json.load(log_file)
@@ -204,9 +213,7 @@ def evaluate_grid_search(
                 dataset.extract_instruction_name = 'maximum_flow_extract'
                 dataset.extract_pattern = r'The maximum flow is (\d+)'
 
-        if not (load_from_exist and 'responses' in dataset.test_dataset[0] and (
-                'extracted_answers' in dataset.test_dataset[0] or 'factscore' in dataset.test_dataset[0])):
-            generate_evaluation_responses(dataset, f'../output2/{dataset_name}/model/{preference_name}/{subdir}')
+        generate_evaluation_responses(dataset, f'../output2/{dataset_name}/model/{preference_name}/{subdir}', load_from_exist)
         if visualize:
             with open(dataset.load_test_path[:-1], 'w', encoding='utf-8') as file:
                 json.dump(dataset.test_dataset, file, indent=4)
@@ -241,15 +248,6 @@ def evaluate_original(dataset_name, eval_source, load_from_exist=True, visualize
     if visualize:
         with open(dataset.load_test_path[:-1], 'w', encoding='utf-8') as file:
             json.dump(dataset.test_dataset, file, indent=4)
-    _, correctness, accuracy, ece = calculate_metrics(dataset)
-    metrics = {
-        'wrong_correctness': correctness,
-        'accuracy': accuracy,
-        'ece': ece
-    }
-    os.makedirs(f'../output2/{dataset_name}/metric/original/', exist_ok=True)
-    with open(f'../output2/{dataset_name}/metric/original/{eval_source}.jsonl', 'w', encoding='utf-8') as file:
-        json.dump(metrics, file)
 
 
 if __name__ == '__main__':

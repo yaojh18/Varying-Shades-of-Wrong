@@ -49,5 +49,7 @@ def call_ChatGPT(
         except Exception as e:
             print(e)
             num_rate_errors += 1
+            if num_rate_errors >= 5:
+                raise RuntimeError('Not able to get response from GPT-3.5')
             time.sleep(np.power(2, num_rate_errors))
     return response

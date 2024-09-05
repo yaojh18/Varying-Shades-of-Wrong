@@ -8,7 +8,7 @@ from datetime import datetime
 from abc import abstractmethod
 from datasets import Dataset, concatenate_datasets
 from trl import DPOTrainer, DPOConfig, CPOTrainer, ORPOTrainer, CPOConfig, ORPOConfig
-from transformers import BitsAndBytesConfig, AutoTokenizer, AutoModelForCausalLM
+from transformers import BitsAndBytesConfig, AutoTokenizer, AutoModelForCausalLM, TrainingArguments
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from unsloth import FastLanguageModel
 
@@ -324,74 +324,115 @@ def preference_optimization(
     dataset = dataset.map(format_chat_template)
 
     # TODO: Change training arguments here
-    args_dict = {
-        "gradient_accumulation_steps": 1,
-        "per_device_train_batch_size": 1,
-        # "do_eval": False,
-        "do_eval": True,
-        "per_device_eval_batch_size": 1,
-        "eval_strategy": 'steps',
-        "eval_steps": 1000,
-        "save_strategy": 'steps',
-        "save_steps": 1000,
-        "logging_strategy": 'steps',
-        "logging_steps": 200,
-        "metric_for_best_model": "eval_loss",
-        "greater_is_better": False,
-        "save_total_limit": 3,
-        "load_best_model_at_end": True,
-        "fp16": not torch.cuda.is_bf16_supported(),
-        "bf16": torch.cuda.is_bf16_supported(),
-        "output_dir": f'../output2/{dataset_name}/model/{output_name}/{grid_search_name}/',
-        "max_length": 1536,
-        "max_prompt_length": 512,
-        "learning_rate": learning_rate,
-        "lr_scheduler_type": lr_scheduler_type,
-        "weight_decay": weight_decay,
-        "num_train_epochs": num_train_epochs,
-        "warmup_ratio": warmup_ratio,
-    }
-    if trainer_name in ('dpo', 'rso', 'ipo', 'sppo'):
-        trainer_map = {
-            'dpo': 'sigmoid',
-            'rso': 'hinge',
-            'ipo': 'ipo',
-            'sppo': 'sppo_hard'
-        }
-        dpo_config = DPOConfig(loss_type=trainer_map[trainer_name], beta=beta, **args_dict)
+    # # trl == 0.9.6
+    # args_dict = {
+    #     "gradient_accumulation_steps": 1,
+    #     "per_device_train_batch_size": 1,
+    #     # "do_eval": False,
+    #     "do_eval": True,
+    #     "per_device_eval_batch_size": 1,
+    #     "eval_strategy": 'steps',
+    #     "eval_steps": 1000,
+    #     "save_strategy": 'steps',
+    #     "save_steps": 1000,
+    #     "logging_strategy": 'steps',
+    #     "logging_steps": 200,
+    #     "metric_for_best_model": "eval_loss",
+    #     "greater_is_better": False,
+    #     "save_total_limit": 3,
+    #     "load_best_model_at_end": True,
+    #     "fp16": not torch.cuda.is_bf16_supported(),
+    #     "bf16": torch.cuda.is_bf16_supported(),
+    #     "output_dir": f'../output2/{dataset_name}/model/{output_name}/{grid_search_name}/',
+    #     "max_length": 1536,
+    #     "max_prompt_length": 512,
+    #     "learning_rate": learning_rate,
+    #     "lr_scheduler_type": lr_scheduler_type,
+    #     "weight_decay": weight_decay,
+    #     "num_train_epochs": num_train_epochs,
+    #     "warmup_ratio": warmup_ratio,
+    # }
+    # if trainer_name in ('dpo', 'rso', 'ipo', 'sppo'):
+    #     trainer_map = {
+    #         'dpo': 'sigmoid',
+    #         'rso': 'hinge',
+    #         'ipo': 'ipo',
+    #         'sppo': 'sppo_hard'
+    #     }
+    #     dpo_config = DPOConfig(loss_type=trainer_map[trainer_name], beta=beta, **args_dict)
+    #     trainer = DPOTrainer(
+    #         model,
+    #         args=dpo_config,
+    #         train_dataset=dataset['train'],
+    #         eval_dataset=dataset['test'],
+    #         tokenizer=tokenizer,
+    #         # model_adapter_name="default",
+    #         # ref_adapter_name="reference",
+    #     )
+    # elif trainer_name in ('cpo', 'simpo'):
+    #     cpo_config = CPOConfig(**args_dict)
+    #     if trainer_name == 'simpo':
+    #         cpo_config.loss_type = 'simpo'
+    #         cpo_config.cpo_alpha = 0.0
+    #     trainer = CPOTrainer(
+    #         model,
+    #         args=cpo_config,
+    #         train_dataset=dataset['train'],
+    #         eval_dataset=dataset['test'],
+    #         tokenizer=tokenizer,
+    #         # model_adapter_name="default",
+    #         # ref_adapter_name="reference",
+    #     )
+    # elif trainer_name == 'orpo':
+    #     orpo_config = ORPOConfig(**args_dict)
+    #     trainer = ORPOTrainer(
+    #         model,
+    #         args=orpo_config,
+    #         train_dataset=dataset['train'],
+    #         eval_dataset=dataset['test'],
+    #         tokenizer=tokenizer,
+    #         # model_adapter_name="default",
+    #         # ref_adapter_name="reference",
+    #     )
+    # else:
+    #     raise NotImplementedError
+
+    # tlr == 0.8.6
+    training_args = TrainingArguments(
+        gradient_accumulation_steps=1,
+        per_device_train_batch_size=1,
+        # do_eval=False,
+        do_eval=True,
+        per_device_eval_batch_size=1,
+        eval_strategy='steps',
+        eval_steps=1000,
+        save_strategy='steps',
+        save_steps=1000,
+        logging_strategy='steps',
+        logging_steps=200,
+        metric_for_best_model="eval_loss",
+        greater_is_better=False,
+        save_total_limit=3,
+        load_best_model_at_end=True,
+        fp16=not torch.cuda.is_bf16_supported(),
+        bf16=torch.cuda.is_bf16_supported(),
+        output_dir=f'../output2/{dataset_name}/model/{output_name}/{grid_search_name}/',
+        learning_rate=learning_rate,
+        lr_scheduler_type=lr_scheduler_type,
+        weight_decay=weight_decay,
+        num_train_epochs=num_train_epochs,
+        warmup_ratio=warmup_ratio,
+    )
+    if trainer_name == 'dpo':
         trainer = DPOTrainer(
             model,
-            args=dpo_config,
+            beta=beta,
+            args=training_args,
+            max_length=1536,
+            max_prompt_length=512,
             train_dataset=dataset['train'],
             eval_dataset=dataset['test'],
             tokenizer=tokenizer,
-            # model_adapter_name="default",
-            # ref_adapter_name="reference",
-        )
-    elif trainer_name in ('cpo', 'simpo'):
-        cpo_config = CPOConfig(**args_dict)
-        if trainer_name == 'simpo':
-            cpo_config.loss_type = 'simpo'
-            cpo_config.cpo_alpha = 0.0
-        trainer = CPOTrainer(
-            model,
-            args=cpo_config,
-            train_dataset=dataset['train'],
-            eval_dataset=dataset['test'],
-            tokenizer=tokenizer,
-            # model_adapter_name="default",
-            # ref_adapter_name="reference",
-        )
-    elif trainer_name == 'orpo':
-        orpo_config = ORPOConfig(**args_dict)
-        trainer = ORPOTrainer(
-            model,
-            args=orpo_config,
-            train_dataset=dataset['train'],
-            eval_dataset=dataset['test'],
-            tokenizer=tokenizer,
-            # model_adapter_name="default",
-            # ref_adapter_name="reference",
         )
     else:
         raise NotImplementedError
