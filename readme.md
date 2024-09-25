@@ -1,3 +1,10 @@
+## 9 / 25
+Last experiment to run:
+1. Proxy experiment. Unzip data under root dir. Run `python3 grid_search.py` with parameter `--dataset_name "MedMCQA, Science"`. We only run on 4 setups: (score-0.1, score-0.5) * (self-generator, all-generator). See `./proxy.sh` for example.
+   + The number of total experiment = 4 setups * 2 datasets = 8. I think we have time for grid search since there aren't many expeirments.
+
+
+
 ## 8 / 30
 After finishing main part 2 experiment, there are 3 analysis experiments need to run:
 1. In-domain experiment: Unzip necessary evaluation data under `./output2`. Run `python3 evaluate.py` with parameter `--eval_source "indomain"`. See `./indomain.sh` for example. 

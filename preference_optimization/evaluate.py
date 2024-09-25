@@ -56,6 +56,8 @@ def calculate_metrics(dataset, key=None):
     # remove correct responses
 
     wrong_correctness = [c for c, a in zip(correctness, accuracy) if not a]
+    wrong_correctness = np.clip(wrong_correctness, a_min=0.0, a_max=1.0)
+    correctness = np.clip(wrong_correctness, a_min=0.0, a_max=1.0)
 
     return np.mean(correctness), np.mean(wrong_correctness), np.mean(accuracy), calculate_ece(np.array(accuracy), np.array(confidence))
 
@@ -113,18 +115,8 @@ def calculate_normalizer_for_shortest_path(dataset):
 
 
 def calculate_normalizer_for_maximum_flow(dataset):
-    # TODO: change the method here.
-    graph_pattern = re.compile(r'an edge from node (\d+) to node (\d+) with capacity (\d+)')
-    question_pattern = re.compile(r'Q: What is the maximum flow from node (\d+) to node (\d+)')
     for data in dataset.test_dataset:
-        edge_strs = data['query'].split('\n')[1: -2]
-        start, end = question_pattern.search(data['query'].split('\n')[-2]).groups()
-        start, end = int(start), int(end)
-        edge_args = [graph_pattern.search(edge_str).groups() for edge_str in edge_strs]
-        edge_args = [(int(edge_arg[0]), int(edge_arg[1]), int(edge_arg[2])) for edge_arg in edge_args]
-        G = networkx.Graph()
-        G.add_weighted_edges_from(edge_args)
-        data['normalizer'] = find_longest_path(G, start, end)
+        data['normalizer'] = 2 * data['correct_answer']
 
 
 def evaluate_grid_search(
@@ -149,15 +141,8 @@ def evaluate_grid_search(
     elif preference_type.find('score') >= 0:
         preference_name += '_' + str(top_p) + '_' + eval_model_name
     preference_name += '_' + trainer_name
-    # TODO: change to evaluate factscore
-    # model_path = f'../output2/{dataset_name}/response/{preference_name}/'
     model_path = f'../output2/{dataset_name}/model/{preference_name}/'
-    _grid_search_subdirs = [name for name in os.listdir(model_path) if os.path.isdir(os.path.join(model_path, name))]
-    grid_search_subdirs = []
-    for subdir in _grid_search_subdirs:
-        if os.path.exists(os.path.join(model_path, subdir, 'log_all.json')) \
-                and os.path.exists(os.path.join(model_path, subdir, 'adapter_model.safetensors')):
-            grid_search_subdirs.append(subdir)
+    grid_search_subdirs = [name for name in os.listdir(model_path) if os.path.isdir(os.path.join(model_path, name))]
     if eval_strategy == 'latest':
         latest_dirs = {}
         for subdir in grid_search_subdirs:
@@ -170,13 +155,7 @@ def evaluate_grid_search(
         _, top_k = eval_strategy.split('_')
         top_k = int(top_k)
         val_losses = []
-        # TODO: change to evaluate factscore
-        # with open(f'../output2/{dataset_name}/model/log_all.json', 'r', encoding='utf-8') as log_file:
-        #     logs = json.load(log_file)
-        # for subdir in _grid_search_subdirs:
-        #     if subdir in logs[preference_name]:
-        #         val_losses.append((logs[preference_name][subdir]['best_val_loss'], subdir))
-        for subdir in _grid_search_subdirs:
+        for subdir in grid_search_subdirs:
             with open(os.path.join(model_path, subdir, 'log.json'), 'r', encoding='utf-8') as log_file:
                 log_data = json.load(log_file)
                 best_val_loss = log_data['best_val_loss']
@@ -257,7 +236,7 @@ if __name__ == '__main__':
     parser.add_argument('--eval_source', type=str, default='homogeneous',
                         help='Source where fine-tuned model will be evaluated: homogeneous, indomain')
     parser.add_argument('--dataset_name', type=str, default='KnowledgeCrosswords',
-                        help='Name of the dataset: KnowledgeCrosswords, BioGeneration, CommonSense, NLGraph_SP')
+                        help='Name of the dataset: KnowledgeCrosswords, BioGeneration, CommonSense, NLGraph_SP, MedMCQA, Science')
     parser.add_argument('--eval_model_name', type=str, default='gpt-4', help='Name of the evaluation model: gpt-4')
     parser.add_argument('--preference_type', type=str, default='oracle',
                         help='Type of preference: oracle, direct, score, row, row_oracle, row_direct, row_score')

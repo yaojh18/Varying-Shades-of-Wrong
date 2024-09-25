@@ -7,6 +7,7 @@ import random
 import torch
 import re
 import torch.nn.functional as F
+from typing import Callable
 from torch.utils.data import random_split
 from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -32,7 +33,7 @@ class RawPreferenceDataset:
     dataset_name: str
     model_name: str
     extract_pattern: str
-    map_into_index: bool
+    post_process: Callable
     output_name: str = ''
     split_ratio: float = 0.8
 
@@ -55,6 +56,11 @@ class RawPreferenceDataset:
         self.dataset_sample_size = dataset_sample_size
         self.response_sample_size = response_sample_size
         self.load_test_path = load_test_path
+
+        self.dataset = None
+        self.train_dataset = None
+        self.test_dataset = None
+
         if self.output_name == '':
             self.output_name = self.dataset_name
         if load_from_exist and load_test_path is not None and os.path.exists(load_test_path):
@@ -81,12 +87,13 @@ class RawPreferenceDataset:
         pass
 
     def train_test_split(self):
-        train_dataset_size = round(len(self.dataset) * self.split_ratio)
-        torch.manual_seed(42)
-        torch.cuda.manual_seed(42)
-        self.train_dataset, self.test_dataset = random_split(self.dataset, [train_dataset_size, len(self.dataset) - train_dataset_size])
-        self.train_dataset = list(self.train_dataset)
-        self.test_dataset = list(self.test_dataset)
+        if self.train_dataset is None and self.test_dataset is None:
+            train_dataset_size = round(len(self.dataset) * self.split_ratio)
+            torch.manual_seed(42)
+            torch.cuda.manual_seed(42)
+            self.train_dataset, self.test_dataset = random_split(self.dataset, [train_dataset_size, len(self.dataset) - train_dataset_size])
+            self.train_dataset = list(self.train_dataset)
+            self.test_dataset = list(self.test_dataset)
 
     def generate_answer(self, split='train', key=None, peft_dir=None):
         with open(f'../instruction/{self.instruction_name}.txt', encoding='utf-8') as f:
@@ -162,7 +169,7 @@ class RawPreferenceDataset:
             dataset=self.train_dataset if split == 'train' else self.test_dataset,
             key=extracted_answers_name,
             pattern=self.extract_pattern,
-            map_into_index=self.map_into_index
+            post_process=self.post_process
         )
 
     def save_dataset(self):
@@ -204,7 +211,7 @@ def query_openai(prompt, index, model_name, mode):
     else:
         generate_kwargs = {
             "temperature": 0.0,
-            "max_tokens": 20,
+            "max_tokens": 32,
         }
     retry_count = 100
     retry_interval = 10
@@ -269,7 +276,7 @@ def batch_query_open_sourced_llm(prompt_list, model_name, peft_dir=None, mode='g
     else:
         model = AutoModelForCausalLM.from_pretrained(
             peft_dir,
-            device_map='auto',
+            device_map='balanced_low_0',
             torch_dtype=torch.bfloat16,
             token='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',
         )
@@ -308,7 +315,7 @@ def batch_query_open_sourced_llm(prompt_list, model_name, peft_dir=None, mode='g
             "do_sample": False,
             "temperature": None,
             "top_p": None,
-            "max_new_tokens": 20,
+            "max_new_tokens": 32,
             "pad_token_id": tokenizer.eos_token_id,
             "eos_token_id": tokenizer.eos_token_id,
         }
@@ -431,7 +438,7 @@ def get_vera_score(model: Vera, context, options):
     return vera_scores
 
 
-def clean_extracted_answers(dataset: list, key, pattern, map_into_index=True, map_range=(0, 1, 2, 3)):
+def clean_extracted_answers(dataset: list, key, pattern, post_process=lambda x: x):
     pattern = re.compile(pattern)
     for data in dataset:
         new_extracted_answers = []
@@ -439,12 +446,7 @@ def clean_extracted_answers(dataset: list, key, pattern, map_into_index=True, ma
             match = pattern.search(d)
             if match:
                 result = match.group(1)
-                if result.isdigit():
-                    result = int(result)
-                elif map_into_index:
-                    result = letter2idx[result]
-                    if result not in map_range:
-                        result = None
+                result = post_process(result)
             else:
                 result = None
             new_extracted_answers.append(result)

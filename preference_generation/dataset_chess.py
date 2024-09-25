@@ -12,7 +12,7 @@ class ChessPuzzle(RawPreferenceDataset):
         self.output_name = kwargs['dataset_name']
         self.STOCKFISH_PATH = '../model/stockfish_windows/stockfish-windows-x86-64-avx2.exe'
         self.extract_pattern = r'([A-Z])(\.|\. .+)?$'
-        self.map_into_index = False
+        self.post_process = lambda x: letter2idx[x] if letter2idx[x] <= 3 else None
         super().__init__(**kwargs)
 
     def load_dataset(self):

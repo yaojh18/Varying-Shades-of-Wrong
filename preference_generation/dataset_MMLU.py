@@ -4,12 +4,6 @@ from preference_generation.utils import *
 
 
 class MMLUPro(RawPreferenceDataset):
-    """
-    Things need considering when parsing:
-    1. Generated answer may not have a desired format. Need to manually add rules.
-    2. Generated answer may not fall in the right index range due parser error. Need checking.
-    3. Generated answer may have abstention behavior.
-    """
 
     def __init__(self, **kwargs):
         self.output_name = kwargs['dataset_name']
@@ -39,7 +33,7 @@ class MMLUPro(RawPreferenceDataset):
             "ori_mmlu-world_religions"
         ]
         self.extract_pattern = r'([A-Z])(\.|\. .+)?$'
-        self.map_into_index = True
+        self.post_process = lambda x: letter2idx[x]
         super().__init__(**kwargs)
 
     def load_dataset(self):

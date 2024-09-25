@@ -2,23 +2,27 @@ import os
 import json
 import random
 from preference_generation.metric import load_dataset
-from preference_optimization.evaluate import calculate_metrics
+from preference_optimization.evaluate import calculate_metrics, calculate_normalizer_for_maximum_flow
 
 
-def analysis():
+def analysis(eval_source='homogeneous'):
     for dataset_name in ('KnowledgeCrosswords', 'BioGeneration', 'CommonSense', 'NLGraph_SP'):
+        if not os.path.exists(f'../output2/{dataset_name}/response/{eval_source}.jsonl'):
+            continue
         random.seed(42)
-        dataset = load_dataset(
+        raw_dataset = load_dataset(
             dataset_name=dataset_name,
             model_name='',
-            load_test_path=f'../output2/{dataset_name}/response/homogeneous.jsonl'
+            load_test_path=f'../output2/{dataset_name}/response/{eval_source}.jsonl'
         )
-        test_sample_idxs = [i for i in range(len(dataset.test_dataset))]
+        test_sample_idxs = [i for i in range(len(raw_dataset.test_dataset))]
         random.shuffle(test_sample_idxs)
         random.shuffle(test_sample_idxs)
-        test_sample_idxs = test_sample_idxs[: len(dataset.test_dataset) // 2]
-        val_sample_idxs = [i for i in range(len(dataset.test_dataset)) if i not in test_sample_idxs]
-        for parameter_name in ('original', 'all_direct_filtered_gpt-4_dpo', 'all_oracle_dpo', 'all_score_0.1_gpt-4_dpo', 'all_score_0.5_gpt-4_dpo', 'self_direct_filtered_gpt-4_dpo', 'self_oracle_dpo', 'self_score_0.1_gpt-4_dpo', 'self_score_0.5_gpt-4_dpo'):
+        test_sample_idxs = test_sample_idxs[: len(raw_dataset.test_dataset) // 2]
+        val_sample_idxs = [i for i in range(len(raw_dataset.test_dataset)) if i not in test_sample_idxs]
+        parameter_names = [name for name in os.listdir(f'../output2/{dataset_name}/response/')
+                           if os.path.isdir(f'../output2/{dataset_name}/response/{name}')]
+        for parameter_name in parameter_names:
             if parameter_name != 'original':
                 response_path = f'../output2/{dataset_name}/response/{parameter_name}/'
                 grid_search_subdirs = [name for name in os.listdir(response_path) if
@@ -30,10 +34,12 @@ def analysis():
             best_correctness, best_wrong_correctness, best_accuracy, best_ece, best_grid_search_name = 0.0, 0.0, 0.0, 0.0, ''
             best_test_correctness, best_test_wrong_correctness, best_test_accuracy, best_test_ece = 0.0, 0.0, 0.0, 0.0
             for subdir in grid_search_subdirs:
+                if not os.path.exists(os.path.join(response_path, subdir, f'{eval_source}.jsonl')):
+                    continue
                 dataset = load_dataset(
                     dataset_name=dataset_name,
                     model_name='',
-                    load_test_path=os.path.join(response_path, subdir, f'homogeneous.jsonl')
+                    load_test_path=os.path.join(response_path, subdir, f'{eval_source}.jsonl')
                 )
                 test_dataset = dataset.test_dataset
                 if not ('extracted_answers' in dataset.test_dataset[0] or 'factscore' in dataset.test_dataset[0]):
@@ -63,7 +69,7 @@ def analysis():
             metrics['best_test_accuracy'] = best_test_accuracy
             metrics['best_test_ece'] = best_test_ece
             os.makedirs(f'../output2/{dataset_name}/metric/{parameter_name}/', exist_ok=True)
-            with open(f'../output2/{dataset_name}/metric/{parameter_name}/homogeneous.jsonl', 'w', encoding='utf-8') as file:
+            with open(f'../output2/{dataset_name}/metric/{parameter_name}/{eval_source}.jsonl', 'w', encoding='utf-8') as file:
                 json.dump(metrics, file, indent=4)
 
 

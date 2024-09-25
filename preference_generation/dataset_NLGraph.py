@@ -14,7 +14,7 @@ class NLGraph(RawPreferenceDataset):
             self.extract_pattern = r'The maximum number of matches is (\d+)'
         else:
             self.extract_pattern = r'The final answer is (\d+)'
-        self.map_into_index = False
+        self.post_process = lambda x: int(x)
         super().__init__(**kwargs)
 
     def load_dataset(self):

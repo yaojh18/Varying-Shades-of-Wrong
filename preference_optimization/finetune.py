@@ -8,8 +8,6 @@ from datetime import datetime
 from abc import abstractmethod
 from datasets import Dataset, concatenate_datasets
 from trl import DPOTrainer
-from transformers import BitsAndBytesConfig, AutoTokenizer, AutoModelForCausalLM
-from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from unsloth import FastLanguageModel
 
 from preference_generation.metric import load_dataset
@@ -42,35 +40,36 @@ class PreferenceDatasetCollector:
 
     def is_correct(self, idx, data):
         if self.dataset_name.find('NLGraph') >= 0:
-            return data['extracted answers'][idx] == int(data['correct_answer'])
+            return data['extracted_answers'][idx] == int(data['correct_answer'])
+        elif self.dataset_name == 'Science':
+            return abs(data['extracted_answers'][idx] - data['correct_answer']) < abs(data['correct_answer']) * 0.05
         elif self.dataset_name == 'BioGeneration':
             return data['factscore'][idx] >= 0.9
         else:
-            return data['correctness'][idx][data['extracted answers'][idx]] == max(data['correctness'][idx])
+            return data['correctness'][idx][data['extracted_answers'][idx]] == max(data['correctness'][idx])
 
     def is_same_label(self, i, j, data):
-        if self.dataset_name.find('NLGraph') >= 0:
-            return data['extracted answers'][i] == data['extracted answers'][j]
+        if self.dataset_name.find('NLGraph') >= 0 or self.dataset_name == 'Science':
+            return data['extracted_answers'][i] == data['extracted_answers'][j]
+        elif self.dataset_name == 'MedMCQA':
+            return False
         elif self.dataset_name == 'BioGeneration':
             return data['factscore'][i] == data['factscore'][j]
         else:
-            return data['correctness'][i][data['extracted answers'][i]] == data['correctness'][j][
-                data['extracted answers'][j]]
+            return data['correctness'][i][data['extracted_answers'][i]] == data['correctness'][j][
+                data['extracted_answers'][j]]
 
     def get_correctness(self, idx, data):
         if self.dataset_name.find('NLGraph') >= 0:
-            return -abs(data['extracted answers'][idx] - int(data['correct_answer']))
+            return -abs(data['extracted_answers'][idx] - int(data['correct_answer']))
         elif self.dataset_name == 'BioGeneration':
             return data['factscore'][idx]
         else:
-            return data['correctness'][idx][data['extracted answers'][idx]]
-
-    def is_collected(self, i, j, data):
-        return not self.is_correct(i, data) and not self.is_correct(j, data) and not self.is_same_label(i, j, data)
+            return data['correctness'][idx][data['extracted_answers'][idx]]
 
     def is_valid(self, i, j, data):
-        return ('extracted answers' in data and data['extracted answers'][i] is not None and
-                data['extracted answers'][j] is not None) or ('factscore' in data and data['factscore'][i] is not None and data['factscore'][j] is not None)
+        return ('extracted_answers' in data and data['extracted_answers'][i] is not None and
+                data['extracted_answers'][j] is not None) or ('factscore' in data and data['factscore'][i] is not None and data['factscore'][j] is not None)
 
 
 class DirectCompareDatasetCollector(PreferenceDatasetCollector):
@@ -119,7 +118,7 @@ class ScoreCompareDatasetCollector(PreferenceDatasetCollector):
 
     def is_valid(self, i, j, data):
         return data[self.reward_name][i] is not None and data[self.reward_name][j] is not None and \
-            (('extracted answers' in data and data['extracted answers'][i] is not None and data['extracted answers'][j] is not None) or
+            (('extracted_answers' in data and data['extracted_answers'][i] is not None and data['extracted_answers'][j] is not None) or
              ('factscore' in data and data['factscore'][i] is not None and data['factscore'][j] is not None))
 
     def filter_train_dataset(self):
@@ -263,36 +262,7 @@ def preference_optimization(
         raise NotImplementedError
 
     dataset = dataset.train_test_split(test_size=0.1)
-    # bnb_config = BitsAndBytesConfig(
-    #     load_in_4bit=True,
-    #     bnb_4bit_quant_type="nf4",
-    #     bnb_4bit_compute_dtype=torch.bfloat16,
-    #     bnb_4bit_use_double_quant=True,
-    # )
-    # model = AutoModelForCausalLM.from_pretrained(
-    #     'meta-llama/Meta-Llama-3-8B-Instruct',
-    #     device_map='auto',
-    #     torch_dtype=torch.bfloat16,
-    #     quantization_config=bnb_config,
-    #     attn_implementation="flash_attention_2",
-    #     token='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'
-    # )
-    # peft_config = LoraConfig(
-    #     r=16,
-    #     lora_alpha=16,
-    #     lora_dropout=0,
-    #     target_modules=['k_proj', 'gate_proj', 'v_proj', 'up_proj', 'q_proj', 'o_proj', 'down_proj'],
-    #     bias="none",
-    #     task_type="CAUSAL_LM",
-    # )
-    # model = get_peft_model(model, peft_config=peft_config)
-    # model.add_adapter(peft_config=peft_config, adapter_name="reference")
-    # tokenizer = AutoTokenizer.from_pretrained('meta-llama/Meta-Llama-3-8B-Instruct')
-    # tokenizer.pad_token = tokenizer.eos_token
-    # tokenizer.padding_side = 'left'
 
-    # TODO: if you want to use unsloth. However, unsloth doesn't support multi-gpus now.
-    # TODO: make sure you comment out model_adapter_name and ref_adapter_name
     model, tokenizer = FastLanguageModel.from_pretrained(
         model_name='meta-llama/Meta-Llama-3-8B-Instruct',
         device_map='auto',
@@ -463,7 +433,7 @@ if __name__ == '__main__':
     parser.add_argument('--preference_source', type=str, default='all',
                         help='Source where preferences are collected: all, self')
     parser.add_argument('--dataset_name', type=str, default='KnowledgeCrosswords',
-                        help='Name of the dataset: KnowledgeCrosswords, BioGeneration, CommonSense, NLGraph_SP')
+                        help='Name of the dataset: KnowledgeCrosswords, BioGeneration, CommonSense, NLGraph_SP, MedMCQA, Science')
     parser.add_argument('--eval_model_name', type=str, default='gpt-4', help='Name of the evaluation model: gpt-4')
     parser.add_argument('--preference_type', type=str, default='oracle',
                         help='Type of preference: oracle, direct, score, row, row_oracle, row_direct, row_score.')

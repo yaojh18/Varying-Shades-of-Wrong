@@ -2,7 +2,9 @@ dataset_name_translator = {
     'KnowledgeCrosswords': 'KC',
     'BioGeneration': 'BioGeneration',
     'CommonSense': 'COM2',
-    'NLGraph_SP': 'NLGraph_shortest_path'
+    'NLGraph_SP': 'NLGraph_shortest_path',
+    'Science': 'Science',
+    'MedMCQA': 'MedMCQA'
 }
 
 
@@ -15,5 +17,7 @@ def get_extract_instruction_name(dataset_name):
         return 'matching_extract'
     elif dataset_name == 'NLGraph':
         return 'nlgraph_extract'
+    elif dataset_name == 'Science':
+        return 'science_extract'
     else:
         return 'multi_choice_extract'

@@ -1,3 +1,6 @@
+import json
+import os
+
 from preference_generation.metric import *
 
 
@@ -363,5 +366,151 @@ def process_llm_queries(eval_model_name='llama-3'):
             dataset.save_dataset()
 
 
+def select_examples(conf_name='self_row_score_0.1_gpt-4_dpo', dataset_name='NLGraph_SP'):
+    def display_answer(data):
+        if dataset_name == 'NLGraph_SP':
+            return data['extracted_answers']
+        elif dataset_name == 'BioGeneration':
+            return data['factscore']
+        else:
+            return [c[e] if e is not None else None for e, c in zip(data['extracted_answers'], data['correctness'])]
+    with open(f'../output2/{dataset_name}/metric/{conf_name}/homogeneous.jsonl', 'r', encoding='utf-8') as file:
+        metric = json.load(file)
+        para_name = metric['best_grid_search_name']
+    original_dataset = []
+    with open(f'../output2/{dataset_name}/response/original/homogeneous.jsonl', 'r', encoding='utf-8') as file:
+        for line in file:
+            original_dataset.append(json.loads(line.strip()))
+    finetune_dataset = []
+    with open(f'../output2/{dataset_name}/response/{conf_name}/{para_name}/homogeneous.jsonl', 'r', encoding='utf-8') as file:
+        for line in file:
+            finetune_dataset.append(json.loads(line.strip()))
+    display_dataset = []
+    for o_data, f_data in zip(original_dataset, finetune_dataset):
+        if (dataset_name == 'NLGraph_SP' and any([e == f_data['correct_answer'] for e in f_data['extracted_answers']])) \
+                or (dataset_name == 'BioGeneration' and any([fs > 0.9 if fs is not None else False for fs in f_data['factscore']])) \
+                or ((dataset_name == 'CommonSense' or dataset_name == 'KnowledgeCrosswords') and len(set(display_answer(f_data))) >= 4):
+            data = {
+                'query': o_data['query'],
+                'original_answers': [(l, e, r) for l, e, r in zip(o_data['log_probs'], display_answer(o_data), o_data['responses'])],
+                'finetune_answers': [(l, e, r) for l, e, r in zip(f_data['log_probs'], display_answer(f_data), f_data['responses'])]
+            }
+            if dataset_name == 'NLRGraph_SP':
+                data['correct_answer'] = o_data['correct_answer']
+            elif dataset_name == 'CommonSense':
+                data['correct_answer'] = (o_data['choices'][0], o_data['correctness'][0])
+            elif dataset_name == 'KnowledgeCrosswords':
+                data['correct_answer'] = o_data['choices'][0].split(';')[o_data['correctness'][0].index(1.0)]
+            display_dataset.append(data)
+    display_dataset = sorted(display_dataset, key=lambda x: len(x['query']))
+    os.makedirs(f'../output2/{dataset_name}/display/', exist_ok=True)
+    with open(f'../output2/{dataset_name}/display/homogeneous.jsonl', 'w', encoding='utf-8') as file:
+        for data in display_dataset:
+            file.write(json.dumps(data) + '\n')
+    with open(f'../output2/{dataset_name}/display/homogeneous.json', 'w', encoding='utf-8') as file:
+        json.dump(display_dataset, file, indent=4)
+
+
+def analysis_kc():
+    log_probs = []
+    rewards_llama3 = []
+    rewards_gpt3 = []
+    rewards_gpt4 = []
+    labels = []
+
+    def add_wow_pair(model_name):
+        dataset = load_dataset('KC', model_name)
+        for data in dataset.train_dataset:
+            log_probs.append([-l for e, l in zip(data['extracted answers'], data['log_probs']) if e is not None])
+            rewards_llama3.append([r for e, r in zip(data['extracted answers'], data['llama-3_reward_5']) if e is not None and r is not None])
+            rewards_gpt3.append([r for e, r in zip(data['extracted answers'], data['gpt-3.5_reward_5']) if e is not None and r is not None])
+            rewards_gpt4.append([r for e, r in zip(data['extracted answers'], data['gpt-4_reward_5']) if e is not None and r is not None])
+            labels.append([c[e] for e, c in zip(data['extracted answers'], data['correctness']) if e is not None])
+
+    for model_name in ('llama-3', ):
+        add_wow_pair(model_name)
+    calculate_accuracy_score(log_probs, labels, is_corrects=None, top_p=1.0, detailed=4)
+    calculate_accuracy_score(log_probs, labels, is_corrects=None, top_p=0.5, detailed=4)
+    calculate_accuracy_score(log_probs, labels, is_corrects=None, top_p=0.1, detailed=4)
+    calculate_accuracy_score(rewards_llama3, labels, is_corrects=None, top_p=1.0, detailed=4)
+    calculate_accuracy_score(rewards_llama3, labels, is_corrects=None, top_p=0.5, detailed=4)
+    calculate_accuracy_score(rewards_llama3, labels, is_corrects=None, top_p=0.1, detailed=4)
+    calculate_accuracy_score(rewards_gpt3, labels, is_corrects=None, top_p=1.0, detailed=4)
+    calculate_accuracy_score(rewards_gpt3, labels, is_corrects=None, top_p=0.5, detailed=4)
+    calculate_accuracy_score(rewards_gpt3, labels, is_corrects=None, top_p=0.1, detailed=4)
+    calculate_accuracy_score(rewards_gpt4, labels, is_corrects=None, top_p=1.0, detailed=4)
+    calculate_accuracy_score(rewards_gpt4, labels, is_corrects=None, top_p=0.5, detailed=4)
+    calculate_accuracy_score(rewards_gpt4, labels, is_corrects=None, top_p=0.1, detailed=4)
+
+
+def analysis_domain(eval_model_name='mistral'):
+    subdirs = [name for name in os.listdir(f'../output/remote/') if os.path.isdir(f'../output/remote/{name}') and name.find('long') >= 0]
+    pattern = re.compile(r"Score:.*(\d+)")
+    for subdir in subdirs:
+        print(f'Working on model (long): {subdir}')
+        for model_name in ('llama-3', 'gpt-3.5', 'gpt-4'):
+            for dataset_name in ('KC', 'BioGeneration', 'COM2', 'NLGraph_shortest_path'):
+                dataset = load_dataset(dataset_name, model_name)
+                if not os.path.exists(f'../output/remote/{subdir}/{model_name}_{dataset.output_name}.jsonl'):
+                    continue
+                remote_responses = []
+                with open(f'../output/remote/{subdir}/{model_name}_{dataset.output_name}.jsonl', 'r', encoding='utf-8') as file:
+                    for line in file:
+                        remote_responses.append(json.loads(line.strip()))
+                remote_responses.sort(key=lambda x: x['id'])
+                idx = 0
+                for data in dataset.train_dataset:
+                    rewards = []
+                    responses = []
+                    for res_idx in (idx, idx + 1):
+                        responses.append(remote_responses[res_idx]['output'])
+                        scores = re.findall(pattern, responses[-1])
+                        scores = list(map(int, scores))
+                        if len(scores) != 5:
+                            scores = [None] * 5
+                        rewards += scores
+                    data[f'{eval_model_name}_reward_5_responses'] = responses
+                    data[f'{eval_model_name}_reward_5'] = rewards
+                    idx += 2
+                dataset.save_dataset()
+                calculate_accuracy_ask_llm_score(dataset_name, model_name, 'reward_5', eval_model_name, True)
+
+    subdirs = [name for name in os.listdir(f'../output/remote/') if os.path.isdir(f'../output/remote/{name}') and name.find('short') >= 0]
+    for subdir in subdirs:
+        print(f'Working on model (short): {subdir}')
+        for model_name in ('llama-3', 'gpt-3.5', 'gpt-4'):
+            for dataset_name in ('KC', 'BioGeneration', 'COM2', 'NLGraph_shortest_path'):
+                remote_responses = []
+                evaluation_jsonl = []
+                with open(f'../output/remote/{subdir}/pairwise_{model_name}_{eval_model_name}_{dataset_name}.jsonl', 'r', encoding='utf-8') as file:
+                    for line in file:
+                        remote_responses.append(json.loads(line.strip()))
+                remote_responses.sort(key=lambda x: x['id'])
+                with open(f'../output/pairwise/{model_name}/{eval_model_name}/{dataset_name}.jsonl', 'r', encoding='utf-8') as file:
+                    for line in file:
+                        evaluation_jsonl.append(json.loads(line.strip()))
+                pattern = re.compile(r'Preferred output: (\d+)')
+                idx = 0
+                for eval_json in evaluation_jsonl:
+                    eval_json['evaluation'] = remote_responses[idx]['output']
+                    match = re.search(pattern, eval_json['evaluation'])
+                    if match is not None:
+                        eval_json['extracted_evaluation'] = int(match.group(1))
+                    else:
+                        eval_json['extracted_evaluation'] = None
+                    eval_json['reversed_evaluation'] = remote_responses[idx + 1]['output']
+                    match = re.search(pattern, eval_json['reversed_evaluation'])
+                    if match is not None:
+                        eval_json['reversed_extracted_evaluation'] = int(match.group(1))
+                    else:
+                        eval_json['reversed_extracted_evaluation'] = None
+                    idx += 2
+                with open(f'../output/pairwise/{model_name}/{eval_model_name}/{dataset_name}.jsonl', 'w', encoding='utf-8') as file:
+                    for data in evaluation_jsonl:
+                        file.write(json.dumps(data) + '\n')
+                calculate_accuracy_ask_llm_pairwise(dataset_name, model_name, 'evaluate_pairwise', eval_model_name, False, True)
+                calculate_accuracy_ask_llm_pairwise(dataset_name, model_name, 'evaluate_pairwise', eval_model_name, True, True)
+
+
 if __name__ == '__main__':
-    form_llm_queries('gemini')
+    pass

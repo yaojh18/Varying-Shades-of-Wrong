@@ -4,6 +4,8 @@ from preference_generation.dataset_KC import KnowledgeCrosswords
 from preference_generation.dataset_FS import BioGeneration
 from preference_generation.dataset_COM2 import COM2
 from preference_generation.dataset_chess import ChessPuzzle
+from preference_generation.dataset_med import MedMCQA
+from preference_generation.dataset_sci import Science
 from preference_generation.utils import batch_query_openai, batch_query_open_sourced_llm
 
 import numpy as np
@@ -36,6 +38,24 @@ def calculate_accuracy_score(predictions, labels, is_corrects=None, top_p=1.0, d
         for prediction in predictions:
             is_corrects.append([False] * len(prediction))
 
+    gaps = []
+    corrects = []
+    for prediction, label, is_correct in zip(predictions, labels, is_corrects):
+        for i in range(len(prediction)):
+            for j in range(i + 1, len(prediction)):
+                if not is_correct[i] and not is_correct[j] and label[i] != label[j]:
+                    gaps.append(abs(prediction[i] - prediction[j]))
+                    if (prediction[i] - prediction[j]) * (label[i] - label[j]) > 0:
+                        corrects.append((1, label[i], label[j], prediction[i], prediction[j]))
+                    else:
+                        corrects.append((0, label[i], label[j], prediction[i], prediction[j]))
+
+    gaps = np.array(gaps)
+    corrects = np.array(corrects)
+    num_top_p = int(len(gaps) * top_p)
+    top_p_indices = np.argsort(gaps)[-num_top_p:]
+    print(f'Overall accuracy is {np.array([c for c, _, _, _, _ in corrects[top_p_indices]]).mean(): .3f}')
+
     if detailed is not None:
         assert isinstance(detailed, int)
         absolutes = []
@@ -49,39 +69,19 @@ def calculate_accuracy_score(predictions, labels, is_corrects=None, top_p=1.0, d
             print(f"Bin {i}'s range is [{bin_start + i * bin_size: .3f}, {bin_start + (i + 1) * bin_size: .3f})")
         detailed_accurate_count = [[0 for _ in range(detailed)] for __ in range(detailed)]
         detailed_all_count = [[0 for _ in range(detailed)] for __ in range(detailed)]
-
-    gaps = []
-    corrects = []
-    for prediction, label, is_correct in zip(predictions, labels, is_corrects):
-        for i in range(len(prediction)):
-            for j in range(i + 1, len(prediction)):
-                if not is_correct[i] and not is_correct[j] and label[i] != label[j]:
-                    gaps.append(abs(prediction[i] - prediction[j]))
-                    if (prediction[i] - prediction[j]) * (label[i] - label[j]) > 0:
-                        corrects.append(1)
-                    else:
-                        corrects.append(0)
-                    if detailed is not None:
-                        i_bin_index = min(floor((label[i] - bin_start) / bin_size), detailed - 1)
-                        j_bin_index = min(floor((label[j] - bin_start) / bin_size), detailed - 1)
-                        detailed_all_count[i_bin_index][j_bin_index] += 1
-                        if (prediction[i] - prediction[j]) * (label[i] - label[j]) > 0:
-                            detailed_accurate_count[i_bin_index][j_bin_index] += 1
-
-    gaps = np.array(gaps)
-    corrects = np.array(corrects)
-    num_top_p = int(len(gaps) * top_p)
-    top_p_indices = np.argsort(gaps)[-num_top_p:]
-    print(f'Overall accuracy is {corrects[top_p_indices].mean(): .3f}')
-
-    if detailed is not None:
+        for c, label_i, label_j, prediction_i, prediction_j in corrects[top_p_indices]:
+            i_bin_index = min(floor((label_i - bin_start) / bin_size), detailed - 1)
+            j_bin_index = min(floor((label_j - bin_start) / bin_size), detailed - 1)
+            detailed_all_count[i_bin_index][j_bin_index] += 1
+            if (prediction_i - prediction_j) * (label_i - label_j) > 0:
+                detailed_accurate_count[i_bin_index][j_bin_index] += 1
         for i in range(detailed):
             for j in range(i + 1, detailed):
                 print(f'Accuracy for {j} over {i} is: {(detailed_accurate_count[i][j] + detailed_accurate_count[j][i]) / (detailed_all_count[i][j] + detailed_all_count[j][i] + 1e-8): .3f}')
 
 
 def load_dataset(dataset_name, model_name, load_test_path=None):
-    if dataset_name.find('MC') >= 0 or dataset_name == 'KC' or dataset_name == 'KnowledgeCrosswords':
+    if dataset_name == 'KC' or dataset_name == 'KnowledgeCrosswords':
         dataset = KnowledgeCrosswords(
             dataset_name=dataset_name,
             model_name=model_name,
@@ -136,6 +136,24 @@ def load_dataset(dataset_name, model_name, load_test_path=None):
             load_from_exist=True,
             load_test_path=load_test_path
         )
+    elif dataset_name == 'MedMCQA':
+        dataset = MedMCQA(
+            dataset_name=dataset_name,
+            model_name=model_name,
+            instruction_name='CoT',
+            extract_instruction_name='multi_choice_extract',
+            load_from_exist=True,
+            load_test_path=load_test_path
+        )
+    elif dataset_name == 'Science':
+        dataset = Science(
+            dataset_name=dataset_name,
+            model_name=model_name,
+            instruction_name='default',
+            extract_instruction_name='science_extract',
+            load_from_exist=True,
+            load_test_path=load_test_path
+        )
     else:
         raise NotImplementedError
     return dataset
@@ -147,13 +165,13 @@ def calculate_task_accuracy_and_wow_number(dataset_name, model_name):
     confidence = []
     for data in dataset.train_dataset:
         confidence += [np.exp(-log_prob) for log_prob in data['log_probs']]
-        if dataset_name.find('NLGraph') >= 0:
-            is_corrects += [int(data['correct_answer']) == e for e in data['extracted answers'] if e is not None]
+        if dataset_name.find('NLGraph') >= 0 or dataset_name == 'Science':
+            is_corrects += [int(data['correct_answer']) == e for e in data['extracted_answers'] if e is not None]
         elif dataset_name == 'BioGeneration':
             is_corrects += [fs for fs in data['factscore'] if fs is not None]
         else:
             correct_answer = max(data['correctness'][0])
-            is_corrects += [c[e] == correct_answer for e, c in zip(data['extracted answers'], data['correctness']) if e is not None]
+            is_corrects += [c[e] == correct_answer for e, c in zip(data['extracted_answers'], data['correctness']) if e is not None]
     print(f'Task accuracy is {sum(is_corrects) / len(dataset.train_dataset) / dataset.response_sample_size}')
     print(f'Task confidence is {sum(confidence) / len(dataset.train_dataset) / dataset.response_sample_size}')
 
@@ -176,14 +194,14 @@ def calculate_accuracy_from_response(dataset_name, model_name, top_p=1.0):
     login(token='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')
     tokenizer = AutoTokenizer.from_pretrained('meta-llama/Meta-Llama-3-8B-Instruct')
 
-    if dataset_name.find('NLGraph') >= 0:
+    if dataset_name.find('NLGraph') >= 0 or dataset_name == 'Science':
         for data in dataset.train_dataset:
-            log_probs.append([-l for e, l in zip(data['extracted answers'], data['log_probs']) if e is not None])
-            consistency = [e for e in data['extracted answers'] if e is not None]
+            log_probs.append([-l for e, l in zip(data['extracted_answers'], data['log_probs']) if e is not None])
+            consistency = [e for e in data['extracted_answers'] if e is not None]
             counter = Counter(consistency)
             consistencies.append([counter[c] / len(consistency) for c in consistency])
-            lengths.append([len(tokenizer(r)['input_ids']) for e, r in zip(data['extracted answers'], data['responses']) if e is not None])
-            labels.append([-abs(int(data['correct_answer']) - e) for e in data['extracted answers'] if e is not None])
+            lengths.append([len(tokenizer(r)['input_ids']) for e, r in zip(data['extracted_answers'], data['responses']) if e is not None])
+            labels.append([-abs(int(data['correct_answer']) - e) for e in data['extracted_answers'] if e is not None])
             is_corrects.append([l == 0 for l in labels[-1]])
     elif dataset_name == 'BioGeneration':
         for data in dataset.train_dataset:
@@ -194,12 +212,12 @@ def calculate_accuracy_from_response(dataset_name, model_name, top_p=1.0):
             is_corrects.append([fs >= 0.9 for fs in data['factscore'] if fs is not None])
     else:
         for data in dataset.train_dataset:
-            log_probs.append([-l for e, l in zip(data['extracted answers'], data['log_probs']) if e is not None])
-            consistency = [e for e in data['extracted answers'] if e is not None]
+            log_probs.append([-l for e, l in zip(data['extracted_answers'], data['log_probs']) if e is not None])
+            consistency = [e for e in data['extracted_answers'] if e is not None]
             counter = Counter(consistency)
             consistencies.append([counter[c] / len(consistency) for c in consistency])
-            lengths.append([len(tokenizer(r)['input_ids']) for e, r in zip(data['extracted answers'], data['responses']) if e is not None])
-            labels.append([c[e] for e, c in zip(data['extracted answers'], data['correctness']) if e is not None])
+            lengths.append([len(tokenizer(r)['input_ids']) for e, r in zip(data['extracted_answers'], data['responses']) if e is not None])
+            labels.append([c[e] for e, c in zip(data['extracted_answers'], data['correctness']) if e is not None])
             correct_answer = max(data['correctness'][0])
             is_corrects.append([l == correct_answer for l in labels[-1]])
 
@@ -235,17 +253,17 @@ def calculate_accuracy_ask_llm_pairwise(
         prompt_list = []
         evaluation_jsonl = []
         for data in dataset.train_dataset:
-            if dataset_name.find('NLGraph') >= 0:
-                responses = [r for r, e in zip(data['responses'], data['extracted answers']) if e is not None]
-                label = [-abs(int(data['correct_answer']) - e) for e in data['extracted answers'] if e is not None]
+            if dataset_name.find('NLGraph') >= 0 or dataset_name == 'Science':
+                responses = [r for r, e in zip(data['responses'], data['extracted_answers']) if e is not None]
+                label = [-abs(int(data['correct_answer']) - e) for e in data['extracted_answers'] if e is not None]
                 is_correct = [l == 0 for l in label]
             elif dataset_name == 'BioGeneration':
                 responses = [r for r, fs in zip(data['responses'], data['factscore']) if fs is not None]
                 label = [fs for fs in data['factscore'] if fs is not None]
                 is_correct = [fs >= 0.9 for fs in data['factscore'] if fs is not None]
             else:
-                responses = [r for r, e in zip(data['responses'], data['extracted answers']) if e is not None]
-                label = [c[e] for e, c in zip(data['extracted answers'], data['correctness']) if e is not None]
+                responses = [r for r, e in zip(data['responses'], data['extracted_answers']) if e is not None]
+                label = [c[e] for e, c in zip(data['extracted_answers'], data['correctness']) if e is not None]
                 is_correct = [l == max(data['correctness'][0]) for l in label]
             for i in range(len(responses)):
                 for j in range(i + 1, len(responses)):
@@ -395,10 +413,10 @@ def calculate_accuracy_ask_llm_score(
     labels = []
     is_corrects = []
 
-    if dataset_name.find('NLGraph') >= 0:
+    if dataset_name.find('NLGraph') >= 0 or dataset_name == 'Science':
         for data in dataset.train_dataset:
-            rewards.append([r for e, r in zip(data['extracted answers'], data[reward_name]) if e is not None and r is not None])
-            labels.append([-abs(int(data['correct_answer']) - e) for e, r in zip(data['extracted answers'], data[reward_name]) if e is not None and r is not None])
+            rewards.append([r for e, r in zip(data['extracted_answers'], data[reward_name]) if e is not None and r is not None])
+            labels.append([-abs(int(data['correct_answer']) - e) for e, r in zip(data['extracted_answers'], data[reward_name]) if e is not None and r is not None])
             is_corrects.append([l == 0 for l in labels[-1]])
     elif dataset_name == 'BioGeneration':
         for data in dataset.train_dataset:
@@ -407,8 +425,8 @@ def calculate_accuracy_ask_llm_score(
             is_corrects.append([fs >= 0.9 for fs in data['factscore'] if fs is not None])
     else:
         for data in dataset.train_dataset:
-            rewards.append([r for e, r in zip(data['extracted answers'], data[reward_name]) if e is not None and r is not None])
-            labels.append([c[e] for e, c, r in zip(data['extracted answers'], data['correctness'], data[reward_name]) if e is not None and r is not None])
+            rewards.append([r for e, r in zip(data['extracted_answers'], data[reward_name]) if e is not None and r is not None])
+            labels.append([c[e] for e, c, r in zip(data['extracted_answers'], data['correctness'], data[reward_name]) if e is not None and r is not None])
             correct_answer = max(data['correctness'][0])
             is_corrects.append([l == correct_answer for l in labels[-1]])
 
@@ -445,10 +463,10 @@ def calculate_nll(dataset_name, model_name, eval_model_name='llama-3', load_from
     labels = []
     is_corrects = []
 
-    if dataset_name.find('NLGraph') >= 0:
+    if dataset_name.find('NLGraph') >= 0 or dataset_name == 'Science':
         for data in dataset.train_dataset:
-            log_probs.append([-l for e, l in zip(data['extracted answers'], data[eval_model_name + '_log_probs']) if e is not None])
-            labels.append([-abs(int(data['correct_answer']) - e) for e in data['extracted answers'] if e is not None])
+            log_probs.append([-l for e, l in zip(data['extracted_answers'], data[eval_model_name + '_log_probs']) if e is not None])
+            labels.append([-abs(int(data['correct_answer']) - e) for e in data['extracted_answers'] if e is not None])
             is_corrects.append([l == 0 for l in labels[-1]])
     elif dataset_name == 'BioGeneration':
         for data in dataset.train_dataset:
@@ -457,8 +475,8 @@ def calculate_nll(dataset_name, model_name, eval_model_name='llama-3', load_from
             is_corrects.append([fs >= 0.9 for fs in data['factscore'] if fs is not None])
     else:
         for data in dataset.train_dataset:
-            log_probs.append([-l for e, l in zip(data['extracted answers'], data[eval_model_name + '_log_probs']) if e is not None])
-            labels.append([c[e] for e, c in zip(data['extracted answers'], data['correctness']) if e is not None])
+            log_probs.append([-l for e, l in zip(data['extracted_answers'], data[eval_model_name + '_log_probs']) if e is not None])
+            labels.append([c[e] for e, c in zip(data['extracted_answers'], data['correctness']) if e is not None])
             correct_answer = max(data['correctness'][0])
             is_corrects.append([l == correct_answer for l in labels[-1]])
 

@@ -14,7 +14,7 @@ class KnowledgeCrosswords(RawPreferenceDataset):
         else:
             self.output_name = f"{kwargs['dataset_name']}_wo_knowledge"
         self.extract_pattern = r'([A-Z])(\.|\. .+)?$'
-        self.map_into_index = True
+        self.post_process = lambda x: letter2idx[x] if letter2idx[x] <= 3 else None
         super().__init__(**kwargs)
 
     def load_dataset(self):

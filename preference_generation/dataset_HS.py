@@ -7,7 +7,7 @@ class HellaSwag(RawPreferenceDataset):
     def __init__(self, **kwargs):
         self.output_name = kwargs['dataset_name']
         self.extract_pattern = r'([A-Z])(\.|\. .+)?$'
-        self.map_into_index = True
+        self.post_process = lambda x: letter2idx[x] if letter2idx[x] <= 3 else None
         super().__init__(**kwargs)
 
     def load_dataset(self):
