@@ -15,7 +15,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, T5EncoderModel, Bi
 from peft import PeftModel
 
 
-OPENAI_KEY = 'sk-proj-BJiODPrgTGI8keUENjdmT3BlbkFJCAQOWpDkd50EHnvp2ILL'
+OPENAI_KEY = ''
 idx2letter = [
     'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
     'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'

@@ -1,4 +1,6 @@
 import argparse
+import random
+import time
 from finetune import preference_optimization
 
 
@@ -17,15 +19,22 @@ def grid_search(
                 for num_train_epochs in num_train_epochs_range:
                     for beta in beta_range:
                         for warmup_ratio in warmup_ratio_range:
-                            preference_optimization(
-                                learning_rate=learning_rate,
-                                lr_scheduler_type=lr_scheduler_type,
-                                weight_decay=weight_decay,
-                                num_train_epochs=num_train_epochs,
-                                beta=beta,
-                                warmup_ratio=warmup_ratio,
-                                **kwargs
-                            )
+                            while True:
+                                try:
+                                    preference_optimization(
+                                        learning_rate=learning_rate,
+                                        lr_scheduler_type=lr_scheduler_type,
+                                        weight_decay=weight_decay,
+                                        num_train_epochs=num_train_epochs,
+                                        beta=beta,
+                                        warmup_ratio=warmup_ratio,
+                                        **kwargs
+                                    )
+                                    break
+                                except RuntimeError:
+                                    print('unsloth breaks because of multi-gpu conflict.')
+                                    r = random.Random(int(time.time()))
+                                    time.sleep(r.randint(0, 100))
 
 
 if __name__ == '__main__':
@@ -35,7 +44,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset_name', type=str, default='KnowledgeCrosswords',
                         help='Name of the dataset: KnowledgeCrosswords, BioGeneration, CommonSense, NLGraph_SP')
     parser.add_argument('--eval_model_name', type=str, default='gpt-4', help='Name of the evaluation model: gpt-4')
-    parser.add_argument('--preference_type', type=str, default='row',
+    parser.add_argument('--preference_type', type=str, default='oracle',
                         help='Type of preference: oracle, direct, score, row, row_oracle, row_direct, row_score.')
     parser.add_argument('--trainer_name', type=str, default='dpo',
                         help='Name of the trainer: dpo, rso, ipo, sppo, cpo, simpo, orpo')
@@ -48,7 +57,7 @@ if __name__ == '__main__':
     parser.add_argument('--learning_rate_range', type=float, nargs='+', default=[1e-4, 5e-5, 1e-5],
                         help='Range of learning rates to explore: e.g., 1e-4 5e-5 1e-5')
     parser.add_argument('--lr_scheduler_type_range', type=str, nargs='+',
-                        default=['linear', 'cosine', 'cosine_with_restarts', 'reduce_lr_on_plateau'],
+                        default=['cosine', 'cosine_with_restart', 'reduce_lr_on_plateau'],
                         help='Range of learning rate scheduler types: e.g. linear, cosine, cosine_with_restarts, reduce_lr_on_plateau')
     parser.add_argument('--weight_decay_range', type=float, nargs='+', default=[0, 1e-5, 1e-3],
                         help='Range of weight decay values: e.g., 0 1e-5 1e-3')
