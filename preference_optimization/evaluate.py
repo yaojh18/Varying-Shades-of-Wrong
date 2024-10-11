@@ -8,7 +8,7 @@ import numpy as np
 from datetime import datetime
 from heapq import nlargest
 
-from preference_generation.metric import load_dataset
+from preference_generation.dataset import load_dataset
 
 
 def generate_evaluation_responses(dataset, peft_dir, load_from_exist=True):
@@ -48,6 +48,14 @@ def calculate_metrics(dataset, key=None):
             cor = [fs if fs is not None else 0.0 for fs in data[key + '_factscore' if key is not None else 'factscore']]
             correctness += cor
             accuracy += [c >= 0.9 for c in cor]
+        elif dataset.dataset_name == 'Science':
+            cor = [abs(e - data['correct_answer']) < abs(data['correct_answer']) * 0.05 if e is not None else False for e in data[key + '_extracted_answers' if key is not None else 'extracted_answers']]
+            correctness += cor
+            accuracy += cor
+        elif dataset.dataset_name == 'MedMCQA':
+            cor = [c[e] == 1.0 if e is not None else False for e, c in zip(data[key + '_extracted_answers' if key is not None else 'extracted_answers'], data['correctness'])]
+            correctness += cor
+            accuracy += cor
         else:
             cor = [c[e] if e is not None else 0.0 for e, c in zip(data[key + '_extracted_answers' if key is not None else 'extracted_answers'], data['correctness'])]
             correctness += cor
@@ -57,7 +65,7 @@ def calculate_metrics(dataset, key=None):
 
     wrong_correctness = [c for c, a in zip(correctness, accuracy) if not a]
     wrong_correctness = np.clip(wrong_correctness, a_min=0.0, a_max=1.0)
-    correctness = np.clip(wrong_correctness, a_min=0.0, a_max=1.0)
+    correctness = np.clip(correctness, a_min=0.0, a_max=1.0)
 
     return np.mean(correctness), np.mean(wrong_correctness), np.mean(accuracy), calculate_ece(np.array(accuracy), np.array(confidence))
 
@@ -239,7 +247,7 @@ if __name__ == '__main__':
                         help='Name of the dataset: KnowledgeCrosswords, BioGeneration, CommonSense, NLGraph_SP, MedMCQA, Science')
     parser.add_argument('--eval_model_name', type=str, default='gpt-4', help='Name of the evaluation model: gpt-4')
     parser.add_argument('--preference_type', type=str, default='oracle',
-                        help='Type of preference: oracle, direct, score, row, row_oracle, row_direct, row_score')
+                        help='Type of preference: none, oracle, direct, score, row, row_oracle, row_direct, row_score')
     parser.add_argument('--trainer_name', type=str, default='dpo', help='Name of the trainer: dpo')
     parser.add_argument('--top_p', type=float, default=0.5, help='Top-p value: 0.5, 0.1')
     parser.add_argument('--filtered', type=bool, default=True,
@@ -249,4 +257,7 @@ if __name__ == '__main__':
                         help='how many configs to use for evaluation: all, latest, best_n (n is int)')
 
     args = parser.parse_args()
-    evaluate_grid_search(**vars(args))
+    if args.preference_type == 'none':
+        evaluate_original(args.dataset_name, args.eval_source)
+    else:
+        evaluate_grid_search(**vars(args))

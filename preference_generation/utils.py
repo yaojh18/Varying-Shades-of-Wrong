@@ -1,21 +1,18 @@
 import time
-import json
-import os
 import collections
 import openai
 import random
 import torch
 import re
 import torch.nn.functional as F
-from typing import Callable
-from torch.utils.data import random_split
 from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from transformers import AutoTokenizer, AutoModelForCausalLM, T5EncoderModel, BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, T5EncoderModel
 from peft import PeftModel
 
 
 OPENAI_KEY = ''
+HF_KEY = ''
 idx2letter = [
     'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
     'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'
@@ -26,175 +23,6 @@ letter2idx = {
     'Q': 16, 'R': 17, 'S': 18, 'T': 19, 'U': 20, 'V': 21, 'W': 22, 'X': 23,
     'Y': 24, 'Z': 25, 'None': None
 }
-
-
-class RawPreferenceDataset:
-
-    dataset_name: str
-    model_name: str
-    extract_pattern: str
-    post_process: Callable
-    output_name: str = ''
-    split_ratio: float = 0.8
-
-    def __init__(self,
-                 dataset_name,
-                 model_name,
-                 instruction_name,
-                 extract_instruction_name,
-                 dataset_sample_size=-1,
-                 response_sample_size=10,
-                 load_from_exist=False,
-                 load_test_path=None
-                 ):
-        random.seed(42)
-        self.dataset = []
-        self.dataset_name = dataset_name
-        self.model_name = model_name
-        self.instruction_name = instruction_name
-        self.extract_instruction_name = extract_instruction_name
-        self.dataset_sample_size = dataset_sample_size
-        self.response_sample_size = response_sample_size
-        self.load_test_path = load_test_path
-
-        self.dataset = None
-        self.train_dataset = None
-        self.test_dataset = None
-
-        if self.output_name == '':
-            self.output_name = self.dataset_name
-        if load_from_exist and load_test_path is not None and os.path.exists(load_test_path):
-            self.train_dataset = []
-            self.test_dataset = []
-            with open(load_test_path, 'r', encoding='utf-8') as file:
-                for line in file:
-                    self.test_dataset.append(json.loads(line.strip()))
-        elif load_from_exist and os.path.exists(f'../output/{self.model_name}/{self.output_name}.jsonl'):
-            self.train_dataset = []
-            self.test_dataset = []
-            with open(f'../output/{self.model_name}/{self.output_name}.jsonl', 'r', encoding='utf-8') as file:
-                for line in file:
-                    self.train_dataset.append(json.loads(line.strip()))
-        else:
-            self.load_dataset()
-            self.precess_dataset(sample_size=self.dataset_sample_size)
-            self.train_test_split()
-
-    def load_dataset(self):
-        pass
-
-    def precess_dataset(self, sample_size):
-        pass
-
-    def train_test_split(self):
-        if self.train_dataset is None and self.test_dataset is None:
-            train_dataset_size = round(len(self.dataset) * self.split_ratio)
-            torch.manual_seed(42)
-            torch.cuda.manual_seed(42)
-            self.train_dataset, self.test_dataset = random_split(self.dataset, [train_dataset_size, len(self.dataset) - train_dataset_size])
-            self.train_dataset = list(self.train_dataset)
-            self.test_dataset = list(self.test_dataset)
-
-    def generate_answer(self, split='train', key=None, peft_dir=None):
-        with open(f'../instruction/{self.instruction_name}.txt', encoding='utf-8') as f:
-            instruction = ''.join(f.readlines())
-        queries = []
-        for data in self.train_dataset if split == 'train' else self.test_dataset:
-            if 'choices' in data:
-                for choice in data['choices']:
-                    queries.append([{'role': 'user', 'content': instruction + data['query'] + choice}])
-            else:
-                queries += [[{'role': 'user', 'content': instruction + data['query']}] for _ in range(self.response_sample_size)]
-        if self.model_name == 'gpt-4':
-            log_probs, responses = batch_query_openai(queries, model_name='gpt-4o')
-        elif self.model_name == 'gpt-3.5':
-            log_probs, responses = batch_query_openai(queries, model_name='gpt-3.5-turbo')
-        elif self.model_name == 'llama-3':
-            log_probs, responses = batch_query_open_sourced_llm(queries, model_name='meta-llama/Meta-Llama-3-8B-Instruct')
-        elif peft_dir is not None:
-            log_probs, responses = batch_query_open_sourced_llm(
-                queries,
-                model_name='meta-llama/Meta-Llama-3-8B-Instruct',
-                peft_dir=peft_dir
-            )
-        else:
-            raise NotImplementedError
-        responses_name = 'responses' if key is None else key + '_responses'
-        log_probs_name = 'log_probs' if key is None else key + '_log_probs'
-        for i, data in enumerate(self.train_dataset if split == 'train' else self.test_dataset):
-            data[log_probs_name] = log_probs[i * self.response_sample_size: i * self.response_sample_size + self.response_sample_size]
-            data[responses_name] = responses[i * self.response_sample_size: i * self.response_sample_size + self.response_sample_size]
-
-    def process_answer(self, split='train', key=None, peft_dir=None):
-        with open(f'../instruction/{self.instruction_name}.txt', encoding='utf-8') as f:
-            instruction = ''.join(f.readlines())
-        with open(f'../instruction/{self.extract_instruction_name}.txt', encoding='utf-8') as f:
-            extract_instruction = ''.join(f.readlines())
-        queries = []
-        responses_name = 'responses' if key is None else key + '_responses'
-        for data in self.train_dataset if split == 'train' else self.test_dataset:
-            if 'choices' in data:
-                for choice, response in zip(data['choices'], data[responses_name]):
-                    queries.append([
-                        {'role': 'user', 'content': instruction + data['query'] + choice},
-                        {'role': 'assistant', 'content': response},
-                        {'role': 'user', 'content': extract_instruction}
-                    ])
-            else:
-                for response in data[responses_name]:
-                    queries.append([
-                        {'role': 'user', 'content': instruction + data['query']},
-                        {'role': 'assistant', 'content': response},
-                        {'role': 'user', 'content': extract_instruction}
-                    ])
-        if self.model_name == 'gpt-4':
-            _, responses = batch_query_openai(queries, model_name='gpt-4o', mode='extract')
-        elif self.model_name == 'gpt-3.5':
-            _, responses = batch_query_openai(queries, model_name='gpt-3.5-turbo', mode='extract')
-        elif self.model_name == 'llama-3':
-            _, responses = batch_query_open_sourced_llm(queries, model_name='meta-llama/Meta-Llama-3-8B-Instruct', mode='extract')
-        elif peft_dir is not None:
-            log_probs, responses = batch_query_open_sourced_llm(
-                queries,
-                model_name='meta-llama/Meta-Llama-3-8B-Instruct',
-                peft_dir=peft_dir,
-                mode='extract'
-            )
-        else:
-            raise NotImplementedError
-        extracted_answers_name = 'extracted_answers' if key is None else key + '_extracted_answers'
-        for i, data in enumerate(self.train_dataset if split == 'train' else self.test_dataset):
-            data[extracted_answers_name] = responses[i * self.response_sample_size: i * self.response_sample_size + self.response_sample_size]
-        clean_extracted_answers(
-            dataset=self.train_dataset if split == 'train' else self.test_dataset,
-            key=extracted_answers_name,
-            pattern=self.extract_pattern,
-            post_process=self.post_process
-        )
-
-    def save_dataset(self):
-        if len(self.train_dataset) > 0:
-            os.makedirs(f'../output/{self.model_name}/', exist_ok=True)
-            with open(f'../output/{self.model_name}/{self.output_name}.jsonl', 'w', encoding='utf-8') as file:
-                for data in self.train_dataset:
-                    file.write(json.dumps(data) + '\n')
-        if len(self.test_dataset) > 0:
-            if self.load_test_path is not None:
-                os.makedirs(os.path.dirname(self.load_test_path), exist_ok=True)
-                with open(self.load_test_path, 'w', encoding='utf-8') as file:
-                    for data in self.test_dataset:
-                        file.write(json.dumps(data) + '\n')
-            else:
-                os.makedirs(f'../output/{self.model_name}/', exist_ok=True)
-                with open(f'../output/{self.model_name}/{self.output_name}_test.jsonl', 'w', encoding='utf-8') as file:
-                    for data in self.test_dataset:
-                        file.write(json.dumps(data) + '\n')
-
-    def find(self, query, split='train'):
-        for data in self.train_dataset if split == 'train' else self.test_dataset:
-            if data['query'] == query:
-                return data
-        return None
 
 
 def query_openai(prompt, index, model_name, mode):
@@ -270,7 +98,7 @@ def batch_query_open_sourced_llm(prompt_list, model_name, peft_dir=None, mode='g
             model_name,
             device_map='auto',
             torch_dtype=torch.bfloat16,
-            token='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'
+            token=HF_KEY
         )
         tokenizer = AutoTokenizer.from_pretrained(model_name)
     else:
@@ -278,7 +106,7 @@ def batch_query_open_sourced_llm(prompt_list, model_name, peft_dir=None, mode='g
             peft_dir,
             device_map='balanced_low_0',
             torch_dtype=torch.bfloat16,
-            token='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',
+            token=HF_KEY,
         )
         model = PeftModel.from_pretrained(model, peft_dir)
         tokenizer = AutoTokenizer.from_pretrained(peft_dir)
@@ -298,7 +126,7 @@ def batch_query_open_sourced_llm(prompt_list, model_name, peft_dir=None, mode='g
             "return_dict_in_generate": True,
             "output_logits": True,
         }
-        batch_size = 10
+        batch_size = 5
     elif mode.find('evaluate') >= 0:
         _, max_new_tokens = mode.split('_')
         generate_kwargs = {
@@ -319,7 +147,7 @@ def batch_query_open_sourced_llm(prompt_list, model_name, peft_dir=None, mode='g
             "pad_token_id": tokenizer.eos_token_id,
             "eos_token_id": tokenizer.eos_token_id,
         }
-        batch_size = 10
+        batch_size = 5
     # Get the log probabilities from the model_name
     log_probs = []
     responses = []

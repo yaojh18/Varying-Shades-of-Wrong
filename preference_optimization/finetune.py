@@ -10,7 +10,8 @@ from datasets import Dataset, concatenate_datasets
 from trl import DPOTrainer
 from unsloth import FastLanguageModel
 
-from preference_generation.metric import load_dataset
+from preference_generation.dataset import load_dataset
+from preference_generation.utils import HF_KEY
 from preference_optimization.utils import *
 
 
@@ -267,7 +268,7 @@ def preference_optimization(
         model_name='meta-llama/Meta-Llama-3-8B-Instruct',
         device_map='auto',
         load_in_4bit=True,
-        token='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'
+        token=HF_KEY
     )
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = 'left'

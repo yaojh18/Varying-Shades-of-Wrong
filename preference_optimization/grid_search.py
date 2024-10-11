@@ -38,7 +38,7 @@ def grid_search(
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Preference Optimization Script")
+    parser = argparse.ArgumentParser(description="Grid Search Script")
     parser.add_argument('--preference_source', type=str, default='all',
                         help='Source where preferences are collected: all, self')
     parser.add_argument('--dataset_name', type=str, default='KnowledgeCrosswords',

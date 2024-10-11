@@ -1,12 +1,12 @@
 import os
 import json
 import random
-from preference_generation.metric import load_dataset
+from preference_generation.dataset import load_dataset
 from preference_optimization.evaluate import calculate_metrics, calculate_normalizer_for_maximum_flow
 
 
 def analysis(eval_source='homogeneous'):
-    for dataset_name in ('KnowledgeCrosswords', 'BioGeneration', 'CommonSense', 'NLGraph_SP'):
+    for dataset_name in ('MedMCQA', 'Science'):
         if not os.path.exists(f'../output2/{dataset_name}/response/{eval_source}.jsonl'):
             continue
         random.seed(42)

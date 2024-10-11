@@ -1,24 +1,18 @@
-from preference_generation.dataset_NLGraph import NLGraph
-from preference_generation.dataset_MMLU import MMLUPro
-from preference_generation.dataset_KC import KnowledgeCrosswords
-from preference_generation.dataset_FS import BioGeneration
-from preference_generation.dataset_COM2 import COM2
-from preference_generation.dataset_chess import ChessPuzzle
-from preference_generation.dataset_med import MedMCQA
-from preference_generation.dataset_sci import Science
-from preference_generation.utils import batch_query_openai, batch_query_open_sourced_llm
-
 import numpy as np
 import os
 import json
 import re
 import torch
 import random
+import argparse
 from tqdm import tqdm
 from math import floor
 from collections import Counter
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from huggingface_hub import login
+
+from preference_generation.dataset import load_dataset
+from preference_generation.utils import batch_query_openai, batch_query_open_sourced_llm, HF_KEY
 
 
 def calculate_accuracy_score(predictions, labels, is_corrects=None, top_p=1.0, detailed=None):
@@ -80,85 +74,6 @@ def calculate_accuracy_score(predictions, labels, is_corrects=None, top_p=1.0, d
                 print(f'Accuracy for {j} over {i} is: {(detailed_accurate_count[i][j] + detailed_accurate_count[j][i]) / (detailed_all_count[i][j] + detailed_all_count[j][i] + 1e-8): .3f}')
 
 
-def load_dataset(dataset_name, model_name, load_test_path=None):
-    if dataset_name == 'KC' or dataset_name == 'KnowledgeCrosswords':
-        dataset = KnowledgeCrosswords(
-            dataset_name=dataset_name,
-            model_name=model_name,
-            instruction_name='CoT',
-            extract_instruction_name='multi_choice_extract',
-            knowledge=False,
-            load_from_exist=True,
-            load_test_path=load_test_path
-        )
-    elif dataset_name.find('NLGraph') >= 0:
-        dataset = NLGraph(
-            dataset_name=dataset_name,
-            model_name=model_name,
-            instruction_name='CoT',
-            extract_instruction_name='nlgraph_extract',
-            load_from_exist=True,
-            load_test_path=load_test_path
-        )
-    elif dataset_name == 'BioGeneration':
-        dataset = BioGeneration(
-            dataset_name=dataset_name,
-            model_name=model_name,
-            instruction_name='default',
-            extract_instruction_name='',
-            load_from_exist=True,
-            load_test_path=load_test_path
-        )
-    elif dataset_name == 'MMLUPro':
-        dataset = MMLUPro(
-            dataset_name=dataset_name,
-            model_name=model_name,
-            instruction_name='CoT',
-            extract_instruction_name='multi_choice_extract',
-            load_from_exist=True,
-            load_test_path=load_test_path
-        )
-    elif dataset_name == 'COM2' or dataset_name == 'CommonSense':
-        dataset = COM2(
-            dataset_name=dataset_name,
-            model_name=model_name,
-            instruction_name='CoT',
-            extract_instruction_name='multi_choice_extract',
-            load_from_exist=True,
-            load_test_path=load_test_path
-        )
-    elif dataset_name == 'ChessPuzzle':
-        dataset = ChessPuzzle(
-            dataset_name=dataset_name,
-            model_name=model_name,
-            instruction_name='CoT',
-            extract_instruction_name='multi_choice_extract',
-            load_from_exist=True,
-            load_test_path=load_test_path
-        )
-    elif dataset_name == 'MedMCQA':
-        dataset = MedMCQA(
-            dataset_name=dataset_name,
-            model_name=model_name,
-            instruction_name='CoT',
-            extract_instruction_name='multi_choice_extract',
-            load_from_exist=True,
-            load_test_path=load_test_path
-        )
-    elif dataset_name == 'Science':
-        dataset = Science(
-            dataset_name=dataset_name,
-            model_name=model_name,
-            instruction_name='default',
-            extract_instruction_name='science_extract',
-            load_from_exist=True,
-            load_test_path=load_test_path
-        )
-    else:
-        raise NotImplementedError
-    return dataset
-
-
 def calculate_task_accuracy_and_wow_number(dataset_name, model_name):
     dataset = load_dataset(dataset_name, model_name)
     is_corrects = []
@@ -183,7 +98,7 @@ def calculate_task_accuracy_and_wow_number(dataset_name, model_name):
         print('Please run the pairwise evaluation before counting overall WoW pairs.')
 
 
-def calculate_accuracy_from_response(dataset_name, model_name, top_p=1.0):
+def calculate_accuracy_from_response(dataset_name, model_name):
     log_probs = []
     consistencies = []
     lengths = []
@@ -191,7 +106,7 @@ def calculate_accuracy_from_response(dataset_name, model_name, top_p=1.0):
     is_corrects = []
     dataset = load_dataset(dataset_name, model_name)
 
-    login(token='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')
+    login(token=HF_KEY)
     tokenizer = AutoTokenizer.from_pretrained('meta-llama/Meta-Llama-3-8B-Instruct')
 
     if dataset_name.find('NLGraph') >= 0 or dataset_name == 'Science':
@@ -221,15 +136,15 @@ def calculate_accuracy_from_response(dataset_name, model_name, top_p=1.0):
             correct_answer = max(data['correctness'][0])
             is_corrects.append([l == correct_answer for l in labels[-1]])
 
-    calculate_accuracy_score(log_probs, labels, is_corrects=is_corrects, top_p=1.0)
-    calculate_accuracy_score(log_probs, labels, is_corrects=is_corrects, top_p=0.5)
-    calculate_accuracy_score(log_probs, labels, is_corrects=is_corrects, top_p=0.1)
-    calculate_accuracy_score(consistencies, labels, is_corrects=is_corrects, top_p=1.0)
-    calculate_accuracy_score(consistencies, labels, is_corrects=is_corrects, top_p=0.5)
-    calculate_accuracy_score(consistencies, labels, is_corrects=is_corrects, top_p=0.1)
     calculate_accuracy_score(lengths, labels, is_corrects=is_corrects, top_p=1.0)
     calculate_accuracy_score(lengths, labels, is_corrects=is_corrects, top_p=0.5)
     calculate_accuracy_score(lengths, labels, is_corrects=is_corrects, top_p=0.1)
+    calculate_accuracy_score(consistencies, labels, is_corrects=is_corrects, top_p=1.0)
+    calculate_accuracy_score(consistencies, labels, is_corrects=is_corrects, top_p=0.5)
+    calculate_accuracy_score(consistencies, labels, is_corrects=is_corrects, top_p=0.1)
+    calculate_accuracy_score(log_probs, labels, is_corrects=is_corrects, top_p=1.0)
+    calculate_accuracy_score(log_probs, labels, is_corrects=is_corrects, top_p=0.5)
+    calculate_accuracy_score(log_probs, labels, is_corrects=is_corrects, top_p=0.1)
     del tokenizer
 
 
@@ -363,7 +278,6 @@ def calculate_accuracy_ask_llm_score(
         reward_name,
         evaluate_model_name,
         load_from_exist=False,
-        top_p=1.0
 ):
     reward_name = evaluate_model_name + '_' + reward_name
     dataset = load_dataset(dataset_name, model_name)
@@ -439,7 +353,7 @@ def calculate_nll(dataset_name, model_name, eval_model_name='llama-3', load_from
     dataset = load_dataset(dataset_name, model_name)
     if not (load_from_exist and eval_model_name + '_log_probs' in dataset.train_dataset[0]):
         if eval_model_name == 'llama-3':
-            login(token='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')
+            login(token=HF_KEY)
             model = AutoModelForCausalLM.from_pretrained(
                 'meta-llama/Meta-Llama-3-8B-Instruct',
                 device_map='auto',
@@ -486,4 +400,22 @@ def calculate_nll(dataset_name, model_name, eval_model_name='llama-3', load_from
 
 
 if __name__ == '__main__':
-    pass
+    parser = argparse.ArgumentParser(description='Evaluate wrong-over-wrong preference accuracy.')
+    parser.add_argument('--dataset_name', type=str, default='KC',
+                        help='Name of the dataset: KC, NLGraph, NLGraph_shortest_path, NLGraph_maximum_flow, NLGraph_matching, BioGeneration, MMLUPro, COM2, HellaSwag, ChessPuzzle, MedMCQA, Science')
+    parser.add_argument('--model_name', type=str, default='gpt-3.5',
+                        help='Name of the generator: llama-3, gpt-3.5, gpt-4')
+    parser.add_argument('--eval_model_name', type=str, default='gpt-3.5',
+                        help='Name of the evaluator: llama-3, gpt-3.5, gpt-4')
+    parser.add_argument('--strategy', type=str, default='self', help='Strategy to elicit wrong-over-wrong preference: self, pair, score')
+    parser.add_argument('--load_from_exist', type=bool, default=True, help='Load from existing dataset or not')
+
+    args = parser.parse_args()
+
+    if args.strategy == 'self':
+        calculate_accuracy_from_response(args.dataset_name, args.model_name)
+    elif args.strategy == 'pair':
+        calculate_accuracy_ask_llm_pairwise(args.dataset_name, args.model_name, 'evaluate_pairwise', args.eval_model_name, True, args.load_from_exist)
+        calculate_accuracy_ask_llm_pairwise(args.dataset_name, args.model_name, 'evaluate_pairwise', args.eval_model_name, False, args.load_from_exist)
+    elif args.strategy == 'score':
+        calculate_accuracy_ask_llm_score(args.dataset_name, args.model_name, 'reward_5', args.eval_model_name, args.load_from_exist)
