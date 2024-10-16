@@ -1,6 +1,6 @@
 # Varing-Shades-of-Wrong Repository
 
-This is the official repo for [Varying Shades of Wrong: Aligning LLMs with Wrong Answers Only]().
+This is the official repo for [Varying Shades of Wrong: Aligning LLMs with Wrong Answers Only](https://arxiv.org/abs/2410.11055).
 
 ### Preparation
 #### Environment
@@ -126,6 +126,15 @@ python3 ./preference_optimization/evaluate.py
 The output of wrong-over-wrong alignment will be under `.\output2\{DATASET_STR}`. There will be 3 sub-dirs: `model` to store wrong-over-wrong aligned LLMs, `response` for the evaluation results of wrong-over-wrong alignment and `metric` for the calculated evaluation metrics.
 ### Citation
 ```
+@misc{yao2024varyingshadeswrongaligning,
+      title={Varying Shades of Wrong: Aligning LLMs with Wrong Answers Only}, 
+      author={Jihan Yao and Wenxuan Ding and Shangbin Feng and Lucy Lu Wang and Yulia Tsvetkov},
+      year={2024},
+      eprint={2410.11055},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2410.11055}, 
+}
 ```
 
 PRs are welcome for any issues or improvements. Any feedback on our work is welcomed!
